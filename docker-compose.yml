@@ -1,11 +1,12 @@
 services:
   agent:
     build: .
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     volumes:
-      - ./data:/app/data
-      - ./evals:/app/evals
-    # Phase 1+ will expose the FastAPI backend and Streamlit review UI:
-    # ports:
-    #   - "8000:8000"   # API
-    #   - "8501:8501"   # review UI
+      - ./data:/app/data          # generated questionnaires land here
+      - ./evals:/app/evals        # results and scorecards land here
+      - ./.cache:/app/.cache      # model response cache survives container restarts
+    # Phase 3 will expose the API and review UI:
+    # ports: ["8000:8000", "8501:8501"]

@@ -1,3 +1,3 @@
 # app/
 
-Phase 3: FastAPI backend, Streamlit review UI, and export writers that fill answers back into the original .xlsx/.docx.
+Phase 3: review UI (approve or edit each answer) and export that writes approved answers back into the customer file, using the cell and paragraph locations recorded by `tools/parse_questionnaire.py`.

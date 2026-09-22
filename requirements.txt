@@ -1,15 +1,22 @@
-# --- Phase 0: sample corpus, golden eval set, validation (in use now) ---
+# Documents, questionnaires, evals
 pypdf>=4.2
 reportlab>=4.1
 openpyxl>=3.1
 python-docx>=1.1
 PyYAML>=6.0
+
+# Retrieval
+rank-bm25>=0.2.2
+scikit-learn>=1.4
+numpy>=1.26
+
+# Model access (tested against anthropic 1.8.0)
+anthropic>=1.8,<2
+
+# Tests
 pytest>=8.0
 
-# --- Phase 1+: agent, retrieval, API, UI (added as each phase lands) ---
-# anthropic>=0.40
-# rank-bm25>=0.2.2
-# chromadb>=0.5
+# Phase 3 (review UI + export), added when that phase lands:
 # fastapi>=0.115
 # uvicorn[standard]>=0.30
 # streamlit>=1.38

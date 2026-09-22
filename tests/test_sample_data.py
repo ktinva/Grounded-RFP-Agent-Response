@@ -111,20 +111,17 @@ def _docx_questions() -> dict[str, str]:
     return out
 
 
-def test_questionnaires_match_answer_key(golden):
-    key = yaml.safe_load((QDIR / "answer_key.yaml").read_text())
+def test_questionnaires_match_answer_keys(golden):
     by_id = {q["id"]: q["question"] for q in golden["questions"]}
-
-    xlsx = _xlsx_questions()
-    assert set(xlsx) == set(key["northgate_security_questionnaire.xlsx"])
-    for ref, gid in key["northgate_security_questionnaire.xlsx"].items():
-        assert xlsx[ref] == by_id[gid]
-    assert sorted(key["northgate_security_questionnaire.xlsx"].values()) == sorted(by_id)
-
-    docx = _docx_questions()
-    assert set(docx) == set(key["northgate_rfp.docx"])
-    for ref, gid in key["northgate_rfp.docx"].items():
-        assert docx[ref] == by_id[gid]
+    for name, parsed in [("northgate_security_questionnaire", _xlsx_questions()),
+                         ("northgate_rfp", _docx_questions())]:
+        key = yaml.safe_load((QDIR / f"{name}.key.yaml").read_text())
+        refs = {q["ref"]: q for q in key["questions"]}
+        assert set(parsed) == set(refs), name
+        for ref, q in refs.items():
+            assert parsed[ref] == q["text"] == by_id[q["golden_id"]], (name, ref)
+    xlsx_key = yaml.safe_load((QDIR / "northgate_security_questionnaire.key.yaml").read_text())
+    assert sorted(q["golden_id"] for q in xlsx_key["questions"]) == sorted(by_id)
 
 
 def test_customer_files_do_not_leak_expected_behaviour():

@@ -61,10 +61,22 @@ Each conflict involves two approved documents that disagree. The correct behavio
 
 ## Sample questionnaires
 
-| File | Questions | Format |
+| File | Questions | Layout |
 |---|---|---|
-| `northgate_security_questionnaire.xlsx` | 83 (all golden-set questions) | Ref / Section / Question / Response / Evidence / Comments |
-| `northgate_rfp.docx` | 20 (mixed subset) | Narrative RFP, requirements numbered 4.x.y |
-| `answer_key.yaml` | n/a | Questionnaire ref → golden-set ID. Used only by the eval runner. |
+| `northgate_security_questionnaire.xlsx` | 83 (all golden-set questions) | `standard`: Ref / Section / Question / Response / Evidence / Comments |
+| `northgate_rfp.docx` | 20 (mixed subset) | `numbered`: narrative RFP, requirements numbered 4.x.y |
 
-Neither customer file contains category labels or expected behavior; a test enforces this.
+Each file has an answer key beside it (`<name>.key.yaml`) that maps each questionnaire reference to its golden-set ID and records the wording used. Only the eval runner reads the key; the agent never sees it. Neither customer file contains category labels or expected behavior, and a test enforces this.
+
+Both files are ordinary generator runs with pinned arguments (`tools/build_sample_questionnaires.py`).
+
+## Generating more
+
+`python -m tools.generate_questionnaire` writes new files to `data/generated/`, which git ignores. You choose the buyer name, format, layout, question count or exact category mix, sections, and the fraction of reworded questions. The same seed always produces the same questions. See the top-level README for examples.
+
+| Format | Layouts |
+|---|---|
+| xlsx | `standard`, `yes_no` (header lower down, Yes/No column plus explanation column), `by_section` (one sheet per section) |
+| docx | `numbered`, `table` (a requirements table per section) |
+
+Reworded questions come from `evals/rewordings.yaml`. Only human-approved rewordings are used unless `--include-pending` is passed.
