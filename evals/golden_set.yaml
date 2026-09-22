@@ -1,0 +1,841 @@
+# Golden evaluation set for the Grounded RFP Response Agent.
+#
+# Every expectation here is machine-checked against the rendered PDFs by
+# `python -m evals.validate_golden_set` (also run by pytest and the Docker build),
+# so a citation in this file is guaranteed to point at a page that says it.
+#
+# Schema (see evals/README.md for scoring rules):
+#   id                 unique, prefix = category (COV, NC, CF, SEN, AMB)
+#   category           covered | not_covered | conflict | sensitive | ambiguous
+#   section            questionnaire section the question appears under
+#   question           text exactly as it appears in the sample questionnaires
+#   expected_status    answered | insufficient_evidence | conflict | escalated | needs_clarification
+#   expected_citations [{doc, page, evidence}]  acceptable sources; evidence is a verbatim quote from that page
+#   required_facts     short strings the answer must contain; each must appear in some evidence quote
+#   forbidden          strings the answer must NOT contain (typical hallucinations or draft-only claims)
+#   conflict           {topic, sources: [{doc, page, evidence, value}]}  both sides must be surfaced
+#   route_to           legal | security | product | solutions_engineering
+#   absent_terms       for not_covered: terms that must not appear in any APPROVED document
+#   trap_doc           an unapproved doc that DOES contain an answer; citing it is an automatic fail
+#   clarification_options  for ambiguous: the readings the agent should offer back
+
+version: 1
+knowledge_base: data/sample/kb/manifest.yaml
+teams: [legal, security, product, solutions_engineering]
+
+questions:
+
+# ---------------------------------------------------------------------------
+# 1. COVERED - answer with citation
+# ---------------------------------------------------------------------------
+- id: COV-001
+  category: covered
+  section: Data Protection
+  question: Is customer data encrypted at rest? If so, which algorithm is used?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-SEC-002, page: 2, evidence: "All customer data is encrypted at rest using AES-256."}
+  required_facts: ["AES-256"]
+
+- id: COV-002
+  category: covered
+  section: Data Protection
+  question: What version of TLS is used to protect data in transit?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-SEC-002, page: 2, evidence: "Data in transit over public networks is encrypted using TLS 1.2 or higher"}
+    - {doc: KR-ARC-009, page: 1, evidence: "call a third-party large language model API over TLS 1.2 or higher"}
+  required_facts: ["TLS 1.2 or higher"]
+
+- id: COV-003
+  category: covered
+  section: Data Protection
+  question: Do you support customer-managed encryption keys (BYOK)? On which plans?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-SEC-002, page: 2, evidence: "Customer-managed encryption keys (bring your own key) are supported through AWS KMS on the Enterprise and Enterprise Premium editions."}
+    - {doc: KR-PROD-001, page: 2, evidence: "Customer-managed encryption keys"}
+  required_facts: ["AWS KMS", "Enterprise and Enterprise Premium"]
+
+- id: COV-004
+  category: covered
+  section: Compliance
+  question: Do you have a current SOC 2 Type II report? What period and trust services criteria does it cover?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-CMP-003, page: 1, evidence: "covering the Security, Availability, and Confidentiality trust services criteria. The most recent report covers the period 1 January 2025 to 31 December 2025"}
+  required_facts: ["1 January 2025 to 31 December 2025", "Security, Availability, and Confidentiality"]
+
+- id: COV-005
+  category: covered
+  section: Compliance
+  question: Is your organization ISO 27001 certified?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-CMP-003, page: 1, evidence: "Kestrel Ridge Software is certified to ISO/IEC 27001:2022."}
+  required_facts: ["ISO/IEC 27001:2022"]
+
+- id: COV-006
+  category: covered
+  section: Identity and Access
+  question: Which single sign-on protocols does the platform support?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-PROD-001, page: 3, evidence: "Single sign-on through SAML 2.0 and OpenID Connect (OIDC)."}
+  required_facts: ["SAML 2.0", "OpenID Connect"]
+
+- id: COV-007
+  category: covered
+  section: Identity and Access
+  question: Do you support automated user provisioning via SCIM?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-PROD-001, page: 3, evidence: "SCIM 2.0 user and group provisioning on the Enterprise and Enterprise Premium editions."}
+  required_facts: ["SCIM 2.0"]
+
+- id: COV-008
+  category: covered
+  section: Hosting and Deployment
+  question: Can the solution be deployed on-premises in our own data center?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-PROD-001, page: 2, evidence: "Kestrel Insight is not available for on-premises or customer-hosted deployment."}
+  required_facts: ["not available for on-premises"]
+  notes: A covered negative. The correct answer is "No", with a citation. Not an abstention.
+
+- id: COV-009
+  category: covered
+  section: Hosting and Deployment
+  question: Which cloud provider hosts the service?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-PROD-001, page: 2, evidence: "hosted on Amazon Web Services (AWS)"}
+    - {doc: KR-SEC-002, page: 1, evidence: "Kestrel Insight runs on Amazon Web Services (AWS)"}
+  required_facts: ["Amazon Web Services"]
+
+- id: COV-010
+  category: covered
+  section: AI and Data Use
+  question: Is our data used to train or fine-tune your AI models or any third-party models?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-AI-007, page: 1, evidence: "Kestrel does not use Customer Data, including prompts, uploaded documents, and generated outputs, to train or fine-tune any AI models."}
+  required_facts: ["does not use Customer Data"]
+
+- id: COV-011
+  category: covered
+  section: AI and Data Use
+  question: How long do you retain prompts and AI-generated outputs?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-AI-007, page: 1, evidence: "Prompt and output logs are retained for 30 days and then deleted."}
+  required_facts: ["30 days"]
+  notes: Hard negative for conflict detection. DPA also says "30 days" but about post-termination deletion. Same number, different subject, so not a conflict.
+
+- id: COV-012
+  category: covered
+  section: Availability
+  question: What uptime commitment do you offer?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-SLA-005, page: 1, evidence: "at least 99.9% for the Business and Enterprise editions, and at least 99.95% for the Enterprise Premium edition"}
+    - {doc: KR-PROD-001, page: 3, evidence: "99.9% monthly uptime commitment on the Business and Enterprise editions"}
+  required_facts: ["99.9%", "99.95%"]
+  notes: Hard negative. 99.9% vs 99.95% is tiered by edition, not a conflict. Flagging it as a conflict is a false positive.
+
+- id: COV-013
+  category: covered
+  section: Availability
+  question: What service credits apply if you miss the uptime commitment?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-SLA-005, page: 2, evidence: "Below commitment, at or above 99.0% 10% Below 99.0%, at or above 95.0% 25% Below 95.0% 50%"}
+  required_facts: ["10%", "25%", "50%"]
+
+- id: COV-014
+  category: covered
+  section: Vulnerability Management
+  question: How frequently are independent penetration tests performed?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-SEC-002, page: 3, evidence: "An independent third-party penetration test of the Kestrel Insight platform is performed at least annually."}
+  required_facts: ["at least annually"]
+  forbidden: ["semiannually", "twice a year"]
+  trap_doc: KR-SEC-010
+  notes: The unapproved v3.0 draft says semiannually. Only the approved answer is acceptable.
+
+- id: COV-015
+  category: covered
+  section: Vulnerability Management
+  question: What are your remediation timelines for critical and high-severity vulnerabilities?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-SEC-002, page: 3, evidence: "Critical vulnerabilities are remediated within 7 days and high-severity vulnerabilities within 30 days."}
+  required_facts: ["7 days", "30 days"]
+
+- id: COV-016
+  category: covered
+  section: Data Protection
+  question: How is our data isolated from other customers' data in the multi-tenant service?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-SEC-002, page: 2, evidence: "Every request carries a tenant identifier that is enforced at the application layer and by row-level security in the database."}
+  required_facts: ["tenant identifier", "row-level security"]
+
+- id: COV-017
+  category: covered
+  section: Identity and Access
+  question: How often are privileged access rights to production reviewed?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-SEC-002, page: 3, evidence: "Access rights are reviewed quarterly."}
+  required_facts: ["quarterly"]
+
+- id: COV-018
+  category: covered
+  section: Business Continuity
+  question: What is your Recovery Time Objective (RTO)?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-BCP-004, page: 1, evidence: "a Recovery Time Objective (RTO) of 12 hours"}
+  required_facts: ["12 hours"]
+  notes: RTO appears in one approved doc only. RPO (CF-005) is the conflicting figure; the agent must not bleed that conflict into this answer.
+
+- id: COV-019
+  category: covered
+  section: Business Continuity
+  question: How often is the disaster recovery plan tested, and when was the last test?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-BCP-004, page: 2, evidence: "The disaster recovery plan is tested at least annually through a failover exercise. The most recent exercise, completed in October 2025, met the stated recovery objectives."}
+  required_facts: ["at least annually", "October 2025"]
+
+- id: COV-020
+  category: covered
+  section: Privacy
+  question: Do you use subprocessors, and how are customers notified of changes?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-DPA-006, page: 2, evidence: "Kestrel will give at least 30 days' notice before engaging a new subprocessor"}
+  required_facts: ["30 days' notice"]
+
+- id: COV-021
+  category: covered
+  section: Privacy
+  question: What happens to our data when the contract ends?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-DPA-006, page: 3, evidence: "Within 30 days after termination, Kestrel will delete Customer Data from production systems."}
+  required_facts: ["30 days after termination"]
+
+- id: COV-022
+  category: covered
+  section: Product Capabilities
+  question: Which file formats can the platform ingest?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-PROD-001, page: 1, evidence: "Kestrel Insight ingests PDF, DOCX, XLSX, PPTX, TXT, and HTML files, as well as scanned images (PNG, JPEG, TIFF)"}
+  required_facts: ["PDF", "DOCX", "XLSX"]
+
+- id: COV-023
+  category: covered
+  section: Product Capabilities
+  question: What is the maximum supported file size?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-PROD-001, page: 1, evidence: "The maximum file size is 500 MB per file."}
+  required_facts: ["500 MB"]
+
+- id: COV-024
+  category: covered
+  section: Integrations
+  question: Which document repositories can the platform connect to natively?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-ARC-009, page: 2, evidence: "Native connectors are available for SharePoint Online, Google Drive, Box, Confluence, and Amazon S3."}
+  required_facts: ["SharePoint Online", "Confluence"]
+
+- id: COV-025
+  category: covered
+  section: Integrations
+  question: What are the API rate limits?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-ARC-009, page: 2, evidence: "API rate limits are 600 requests per minute per workspace on Business, and 3,000 requests per minute per workspace on Enterprise and Enterprise Premium."}
+  required_facts: ["600 requests per minute", "3,000 requests per minute"]
+
+- id: COV-026
+  category: covered
+  section: AI and Data Use
+  question: Can administrators turn off generative AI features?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-AI-007, page: 3, evidence: "Administrators can disable generative AI features for an entire workspace or for individual collections."}
+  required_facts: ["disable generative AI features"]
+
+- id: COV-027
+  category: covered
+  section: AI and Data Use
+  question: Do AI-generated answers show where the information came from?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-AI-007, page: 2, evidence: "Each answer includes citations to the source document and page number"}
+  required_facts: ["citations to the source document and page number"]
+
+- id: COV-028
+  category: covered
+  section: Hosting and Deployment
+  question: Do you support private network connectivity such as AWS PrivateLink?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-ARC-009, page: 3, evidence: "Private connectivity through AWS PrivateLink is available on the Enterprise Premium edition."}
+  required_facts: ["AWS PrivateLink", "Enterprise Premium"]
+
+- id: COV-029
+  category: covered
+  section: Support
+  question: How long are deprecated API versions supported?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-SUP-008, page: 2, evidence: "Public API versions are supported for at least 12 months after a successor version is released."}
+  required_facts: ["at least 12 months"]
+
+- id: COV-030
+  category: covered
+  section: Security Program
+  question: Do employees receive security awareness training?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-SEC-002, page: 1, evidence: "All employees and contractors complete security awareness training during onboarding and annually thereafter"}
+  required_facts: ["annually"]
+
+- id: COV-031
+  category: covered
+  section: Availability
+  question: When is scheduled maintenance performed, and is it excluded from uptime calculations?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-SLA-005, page: 1, evidence: "Scheduled maintenance announced at least 5 business days in advance, limited to 8 hours per month and performed on Sundays between 02:00 and 06:00 UTC."}
+  required_facts: ["Sundays between 02:00 and 06:00 UTC", "5 business days"]
+
+- id: COV-032
+  category: covered
+  section: Logging and Monitoring
+  question: Can audit events be exported to our SIEM?
+  expected_status: answered
+  expected_citations:
+    - {doc: KR-ARC-009, page: 3, evidence: "Events can be streamed to Splunk or Datadog over HTTPS"}
+  required_facts: ["Splunk", "Datadog"]
+
+# ---------------------------------------------------------------------------
+# 2. NOT COVERED - say evidence is insufficient
+# ---------------------------------------------------------------------------
+- id: NC-001
+  category: not_covered
+  section: Compliance
+  question: Is the platform FedRAMP authorized? If so, at what impact level?
+  expected_status: insufficient_evidence
+  absent_terms: ["FedRAMP"]
+  trap_doc: KR-SEC-010
+  forbidden: ["FedRAMP Moderate", "authorized"]
+  route_to: security
+  notes: The unapproved draft claims FedRAMP Moderate. Answering from it is the worst possible failure.
+
+- id: NC-002
+  category: not_covered
+  section: Compliance
+  question: Will you sign a HIPAA Business Associate Agreement?
+  expected_status: insufficient_evidence
+  absent_terms: ["HIPAA", "Business Associate"]
+  trap_doc: KR-SEC-010
+  route_to: legal
+
+- id: NC-003
+  category: not_covered
+  section: Compliance
+  question: Are you PCI DSS compliant?
+  expected_status: insufficient_evidence
+  absent_terms: ["PCI"]
+  trap_doc: KR-SEC-010
+  route_to: security
+
+- id: NC-004
+  category: not_covered
+  section: Vulnerability Management
+  question: Do you operate a bug bounty or vulnerability disclosure program?
+  expected_status: insufficient_evidence
+  absent_terms: ["bug bounty", "vulnerability disclosure"]
+  trap_doc: KR-SEC-010
+  route_to: security
+
+- id: NC-005
+  category: not_covered
+  section: Security Program
+  question: Do you perform background checks on employees with access to customer data?
+  expected_status: insufficient_evidence
+  absent_terms: ["background check", "background checks", "screening"]
+  route_to: security
+
+- id: NC-006
+  category: not_covered
+  section: Product Capabilities
+  question: Does the user interface conform to WCAG 2.1 AA, and can you provide a VPAT?
+  expected_status: insufficient_evidence
+  absent_terms: ["WCAG", "VPAT", "accessibility", "Section 508"]
+  route_to: product
+
+- id: NC-007
+  category: not_covered
+  section: Product Capabilities
+  question: Can the platform process documents written in Simplified Chinese?
+  expected_status: insufficient_evidence
+  absent_terms: ["Chinese", "Mandarin"]
+  route_to: product
+  notes: The KB says 24 languages are supported but the list lives in the help center, not in the KB. The agent must not infer yes or no.
+
+- id: NC-008
+  category: not_covered
+  section: AI and Data Use
+  question: Which specific large language model and vendor power the generative features?
+  expected_status: insufficient_evidence
+  absent_terms: ["GPT", "OpenAI", "Claude", "Anthropic", "Gemini", "Llama", "Mistral"]
+  route_to: product
+  notes: The KB says only "a third-party provider". A partial answer quoting that is acceptable only if it clearly states the vendor is not named in approved documentation.
+
+- id: NC-009
+  category: not_covered
+  section: Integrations
+  question: Do you offer a native Salesforce integration?
+  expected_status: insufficient_evidence
+  absent_terms: ["Salesforce"]
+  route_to: solutions_engineering
+  notes: Mild trap. A list of connectors exists; the agent may note Salesforce is not among them but must not claim it is unsupported (REST API/webhooks could be used).
+
+- id: NC-010
+  category: not_covered
+  section: Data Protection
+  question: Are your cryptographic modules FIPS 140-2 or FIPS 140-3 validated?
+  expected_status: insufficient_evidence
+  absent_terms: ["FIPS"]
+  route_to: security
+
+- id: NC-011
+  category: not_covered
+  section: Product Capabilities
+  question: Do you offer native mobile apps for iOS and Android?
+  expected_status: insufficient_evidence
+  absent_terms: ["mobile", "iOS", "Android"]
+  route_to: product
+
+- id: NC-012
+  category: not_covered
+  section: Support
+  question: What were your average support ticket resolution time and CSAT score last year?
+  expected_status: insufficient_evidence
+  absent_terms: ["CSAT", "resolution time", "satisfaction"]
+  route_to: solutions_engineering
+  notes: The KB has response targets, not resolution metrics. Answering with response targets is a substitution error.
+
+- id: NC-013
+  category: not_covered
+  section: Data Protection
+  question: Do you use post-quantum or quantum-resistant cryptography?
+  expected_status: insufficient_evidence
+  absent_terms: ["quantum"]
+  route_to: security
+
+- id: NC-014
+  category: not_covered
+  section: Hosting and Deployment
+  question: Do you provide a separate sandbox or test environment for customers?
+  expected_status: insufficient_evidence
+  absent_terms: ["sandbox"]
+  route_to: solutions_engineering
+  notes: The whitepaper mentions Kestrel's internal staging environment. That is not a customer sandbox and must not be offered as one.
+
+# ---------------------------------------------------------------------------
+# 3. CONFLICTING DOCUMENTS - identify the conflict (two phrasings each)
+# ---------------------------------------------------------------------------
+- id: CF-001
+  category: conflict
+  section: Incident Response
+  question: What is your timeline for notifying customers of a security breach?
+  expected_status: conflict
+  conflict:
+    topic: breach notification window
+    sources:
+      - {doc: KR-SEC-002, page: 4, evidence: "within 72 hours of confirmation", value: "72 hours"}
+      - {doc: KR-DPA-006, page: 3, evidence: "in any event within 48 hours", value: "48 hours"}
+  route_to: legal
+  notes: The DPA is contractual and is likely the binding figure, but the agent must surface both and let legal decide.
+
+- id: CF-002
+  category: conflict
+  section: Incident Response
+  question: If our data is compromised, how quickly will you tell us?
+  expected_status: conflict
+  conflict:
+    topic: breach notification window
+    sources:
+      - {doc: KR-SEC-002, page: 4, evidence: "within 72 hours of confirmation", value: "72 hours"}
+      - {doc: KR-DPA-006, page: 3, evidence: "in any event within 48 hours", value: "48 hours"}
+  route_to: legal
+
+- id: CF-003
+  category: conflict
+  section: Business Continuity
+  question: How long are backups retained?
+  expected_status: conflict
+  conflict:
+    topic: database backup retention
+    sources:
+      - {doc: KR-SEC-002, page: 4, evidence: "Backups are retained for 30 days", value: "30 days"}
+      - {doc: KR-BCP-004, page: 1, evidence: "Encrypted database backups are retained for 90 days.", value: "90 days"}
+  route_to: security
+
+- id: CF-004
+  category: conflict
+  section: Business Continuity
+  question: For production databases, what is the backup retention period?
+  expected_status: conflict
+  conflict:
+    topic: database backup retention
+    sources:
+      - {doc: KR-SEC-002, page: 4, evidence: "Backups are retained for 30 days", value: "30 days"}
+      - {doc: KR-BCP-004, page: 1, evidence: "Encrypted database backups are retained for 90 days.", value: "90 days"}
+  route_to: security
+
+- id: CF-005
+  category: conflict
+  section: Business Continuity
+  question: What is your Recovery Point Objective (RPO)?
+  expected_status: conflict
+  conflict:
+    topic: recovery point objective
+    sources:
+      - {doc: KR-BCP-004, page: 1, evidence: "Recovery Point Objective (RPO) of 4 hours", value: "4 hours"}
+      - {doc: KR-SLA-005, page: 3, evidence: "Recovery Point Objective (RPO) of 1 hour", value: "1 hour"}
+  route_to: security
+
+- id: CF-006
+  category: conflict
+  section: Business Continuity
+  question: In a disaster, what is the maximum amount of data we could lose?
+  expected_status: conflict
+  conflict:
+    topic: recovery point objective
+    sources:
+      - {doc: KR-BCP-004, page: 1, evidence: "Recovery Point Objective (RPO) of 4 hours", value: "4 hours"}
+      - {doc: KR-SLA-005, page: 3, evidence: "Recovery Point Objective (RPO) of 1 hour", value: "1 hour"}
+  route_to: security
+  notes: The question never says "RPO". The agent has to map the concept.
+
+- id: CF-007
+  category: conflict
+  section: Support
+  question: What is the initial response time for a Severity 1 support ticket?
+  expected_status: conflict
+  conflict:
+    topic: Severity 1 initial response time
+    sources:
+      - {doc: KR-SLA-005, page: 3, evidence: "Within 1 hour, 24x7", value: "1 hour"}
+      - {doc: KR-SUP-008, page: 1, evidence: "Within 30 minutes, 24x7", value: "30 minutes"}
+  route_to: solutions_engineering
+
+- id: CF-008
+  category: conflict
+  section: Support
+  question: If production goes down, how fast will your support team respond?
+  expected_status: conflict
+  conflict:
+    topic: Severity 1 initial response time
+    sources:
+      - {doc: KR-SLA-005, page: 3, evidence: "Within 1 hour, 24x7", value: "1 hour"}
+      - {doc: KR-SUP-008, page: 1, evidence: "Within 30 minutes, 24x7", value: "30 minutes"}
+  route_to: solutions_engineering
+
+- id: CF-009
+  category: conflict
+  section: Hosting and Deployment
+  question: In which geographic regions can our data be hosted?
+  expected_status: conflict
+  conflict:
+    topic: available hosting regions
+    sources:
+      - {doc: KR-PROD-001, page: 2, evidence: "Available hosting regions are the United States, the European Union, and the United Kingdom.", value: "US, EU, UK"}
+      - {doc: KR-DPA-006, page: 2, evidence: "which is either the United States or the European Union", value: "US, EU"}
+  route_to: legal
+
+- id: CF-010
+  category: conflict
+  section: Hosting and Deployment
+  question: Can our data be stored exclusively in the United Kingdom?
+  expected_status: conflict
+  conflict:
+    topic: available hosting regions
+    sources:
+      - {doc: KR-PROD-001, page: 2, evidence: "Available hosting regions are the United States, the European Union, and the United Kingdom.", value: "US, EU, UK"}
+      - {doc: KR-DPA-006, page: 2, evidence: "which is either the United States or the European Union", value: "US, EU"}
+  route_to: legal
+  notes: A retriever that only finds the product overview will answer "yes" with a valid-looking citation. The contract says otherwise.
+
+- id: CF-011
+  category: conflict
+  section: Logging and Monitoring
+  question: How long are customer audit logs retained?
+  expected_status: conflict
+  difficulty: hard
+  conflict:
+    topic: audit log retention
+    sources:
+      - {doc: KR-SEC-002, page: 3, evidence: "Customer audit logs are retained for 1 year.", value: "1 year"}
+      - {doc: KR-ARC-009, page: 3, evidence: "Audit events are available through the Audit Log API for 180 days.", value: "180 days"}
+  route_to: security
+  notes: Could be reconciled (API window vs storage retention), but the documents don't say so. Flag it and let security confirm.
+
+- id: CF-012
+  category: conflict
+  section: Logging and Monitoring
+  question: For how long can we access our audit history?
+  expected_status: conflict
+  difficulty: hard
+  conflict:
+    topic: audit log retention
+    sources:
+      - {doc: KR-SEC-002, page: 3, evidence: "Customer audit logs are retained for 1 year.", value: "1 year"}
+      - {doc: KR-ARC-009, page: 3, evidence: "Audit events are available through the Audit Log API for 180 days.", value: "180 days"}
+  route_to: security
+
+# ---------------------------------------------------------------------------
+# 4. SENSITIVE - escalate rather than invent (even when related text exists)
+# ---------------------------------------------------------------------------
+- id: SEN-001
+  category: sensitive
+  section: Legal and Commercial
+  question: What is your limitation of liability cap under the agreement?
+  expected_status: escalated
+  route_to: legal
+  supporting_evidence:
+    - {doc: KR-SLA-005, page: 2, evidence: "Service credits are the Customer's sole and exclusive remedy for any failure to meet the uptime commitment."}
+  forbidden: ["12 months of fees", "unlimited"]
+  notes: Related SLA text exists but does not answer the question. Attach it for legal; never extrapolate a cap.
+
+- id: SEN-002
+  category: sensitive
+  section: Legal and Commercial
+  question: Will you provide uncapped indemnification for losses arising from a data breach?
+  expected_status: escalated
+  route_to: legal
+
+- id: SEN-003
+  category: sensitive
+  section: Incident Response
+  question: Have you experienced any security breaches or data incidents in the last three years?
+  expected_status: escalated
+  route_to: security
+  forbidden: ["no breaches", "have not experienced"]
+  notes: Breach history is never answered from documentation. Asserting "none" is the classic hallucination.
+
+- id: SEN-004
+  category: sensitive
+  section: Vulnerability Management
+  question: Please attach your most recent full penetration test report.
+  expected_status: escalated
+  route_to: security
+  supporting_evidence:
+    - {doc: KR-SEC-002, page: 3, evidence: "A penetration test summary letter is available to customers under NDA. Full penetration test reports are not distributed."}
+
+- id: SEN-005
+  category: sensitive
+  section: Legal and Commercial
+  question: What discount will you offer for a three-year commitment of 2,000 seats?
+  expected_status: escalated
+  route_to: solutions_engineering
+  notes: Pricing goes to the deal team via SE. The KB contains no pricing.
+
+- id: SEN-006
+  category: sensitive
+  section: Hosting and Deployment
+  question: Will you commit to delivering an on-premises deployment option by Q2 2027?
+  expected_status: escalated
+  route_to: product
+  supporting_evidence:
+    - {doc: KR-PROD-001, page: 2, evidence: "Kestrel Insight is not available for on-premises or customer-hosted deployment."}
+  notes: Roadmap commitment. The current-state fact may be attached; a future commitment may not be made.
+
+- id: SEN-007
+  category: sensitive
+  section: Legal and Commercial
+  question: Will you sign our organization's standard Data Processing Agreement instead of yours?
+  expected_status: escalated
+  route_to: legal
+
+- id: SEN-008
+  category: sensitive
+  section: Legal and Commercial
+  question: Will you agree to annual on-site audits of your facilities by our internal audit team?
+  expected_status: escalated
+  route_to: legal
+  supporting_evidence:
+    - {doc: KR-DPA-006, page: 3, evidence: "On-site audits are permitted only where required by applicable law or a supervisory authority"}
+
+- id: SEN-009
+  category: sensitive
+  section: Company Information
+  question: Please provide audited financial statements for the last three fiscal years.
+  expected_status: escalated
+  route_to: legal
+
+- id: SEN-010
+  category: sensitive
+  section: Company Information
+  question: Is your company currently subject to any litigation or regulatory investigation?
+  expected_status: escalated
+  route_to: legal
+
+- id: SEN-011
+  category: sensitive
+  section: Availability
+  question: Will you guarantee 100% uptime with financial penalties beyond service credits?
+  expected_status: escalated
+  route_to: legal
+  supporting_evidence:
+    - {doc: KR-SLA-005, page: 2, evidence: "Service credits are the Customer's sole and exclusive remedy"}
+  forbidden: ["we guarantee 100%"]
+
+- id: SEN-012
+  category: sensitive
+  section: Company Information
+  question: Provide three customer references in the banking sector, including contact names and phone numbers.
+  expected_status: escalated
+  route_to: solutions_engineering
+
+- id: SEN-013
+  category: sensitive
+  section: Legal and Commercial
+  question: Will you place your source code in escrow for our benefit?
+  expected_status: escalated
+  route_to: legal
+
+- id: SEN-014
+  category: sensitive
+  section: AI and Data Use
+  question: Can you warrant that the AI will never produce an inaccurate answer?
+  expected_status: escalated
+  route_to: product
+  supporting_evidence:
+    - {doc: KR-AI-007, page: 2, evidence: "When the retrieved passages do not support an answer, Kestrel Insight states that it could not find enough information instead of guessing."}
+  forbidden: ["we warrant", "never produce"]
+
+- id: SEN-015
+  category: sensitive
+  section: Company Information
+  question: What cyber liability insurance coverage do you carry, and what are the limits?
+  expected_status: escalated
+  route_to: legal
+
+# ---------------------------------------------------------------------------
+# 5. AMBIGUOUS - request clarification or flag it
+# ---------------------------------------------------------------------------
+- id: AMB-001
+  category: ambiguous
+  section: General
+  question: What is your retention period?
+  expected_status: needs_clarification
+  clarification_options:
+    - database backups
+    - prompt and output logs
+    - customer audit logs
+    - customer data after contract termination
+  notes: Four different answers exist, two of them conflicting. Picking one silently is a failure.
+
+- id: AMB-002
+  category: ambiguous
+  section: General
+  question: How quickly do you respond?
+  expected_status: needs_clarification
+  clarification_options:
+    - support ticket initial response by severity
+    - security breach notification
+    - disaster recovery time (RTO)
+
+- id: AMB-003
+  category: ambiguous
+  section: Compliance
+  question: Are you compliant?
+  expected_status: needs_clarification
+  clarification_options:
+    - SOC 2
+    - ISO/IEC 27001
+    - GDPR / UK GDPR
+    - CCPA / CPRA
+    - EU AI Act
+
+- id: AMB-004
+  category: ambiguous
+  section: General
+  question: Please confirm the solution meets all requirements listed in Appendix C.
+  expected_status: needs_clarification
+  clarification_options:
+    - provide Appendix C (the referenced attachment is missing)
+  notes: References an attachment that was not supplied. Must not answer "yes".
+  forbidden: ["meets all requirements"]
+
+- id: AMB-005
+  category: ambiguous
+  section: Product Capabilities
+  question: What are the limits?
+  expected_status: needs_clarification
+  clarification_options:
+    - maximum file size
+    - API rate limits
+    - scheduled maintenance limits
+
+- id: AMB-006
+  category: ambiguous
+  section: Business Continuity
+  question: Describe your recovery process.
+  expected_status: needs_clarification
+  clarification_options:
+    - disaster recovery after a regional outage
+    - restoring data from backup
+    - end-user account recovery
+
+- id: AMB-007
+  category: ambiguous
+  section: Identity and Access
+  question: Who has access to the data?
+  expected_status: needs_clarification
+  clarification_options:
+    - Kestrel personnel (production access)
+    - the customer's own users and roles
+    - subprocessors
+
+- id: AMB-008
+  category: ambiguous
+  section: Availability
+  question: Is it available 24/7?
+  expected_status: needs_clarification
+  clarification_options:
+    - service availability (uptime commitment)
+    - support hours
+
+- id: AMB-009
+  category: ambiguous
+  section: Integrations
+  question: Does it integrate with our system?
+  expected_status: needs_clarification
+  clarification_options:
+    - name the system (native connectors are listed; others may use the REST API)
+
+- id: AMB-010
+  category: ambiguous
+  section: General
+  question: What is the notice period?
+  expected_status: needs_clarification
+  clarification_options:
+    - new subprocessors
+    - changes to the SLA
+    - changes to the AI model provider
+    - scheduled maintenance
+    - API deprecation

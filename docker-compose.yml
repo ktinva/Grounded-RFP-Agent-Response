@@ -1,0 +1,11 @@
+services:
+  agent:
+    build: .
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - ./evals:/app/evals
+    # Phase 1+ will expose the FastAPI backend and Streamlit review UI:
+    # ports:
+    #   - "8000:8000"   # API
+    #   - "8501:8501"   # review UI
