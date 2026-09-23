@@ -11,7 +11,8 @@ COPY . .
 # Rebuild sample data from source and prove the golden set against it at build time.
 RUN python -m tools.build_sample_corpus \
  && python -m tools.build_sample_questionnaires \
- && python -m evals.validate_golden_set
+ && python -m evals.validate_golden_set \
+ && python -m tools.resolutions
 
 # Default: offline test suite. Override to run the agent, e.g.
 #   docker compose run agent python -m evals.run_evals data/sample/questionnaires/northgate_rfp.docx

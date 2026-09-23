@@ -157,6 +157,9 @@ def validate(golden: dict | None = None) -> tuple[list[str], Counter]:
         elif cat == "ambiguous":
             if not q.get("clarification_options"):
                 errors.append(f"{qid}: ambiguous question needs clarification_options")
+            for group in q.get("answer_all_facts") or []:
+                if not any(normalize(f) in normalize(t) for f in group for t in approved_text.values()):
+                    errors.append(f"{qid}: answer_all_facts group {group} not found in any approved document")
 
     for cat in CATEGORY_STATUS:
         if counts[cat] < MIN_PER_CATEGORY:

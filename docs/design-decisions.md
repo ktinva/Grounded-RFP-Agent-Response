@@ -187,3 +187,26 @@ A running log. Each entry states the decision, why, and what it costs.
 **Decision:** After the model verifier approves a claim, code checks that every number, and every overclaiming word (continuously, always, never, only, guaranteed, fully, all, every, 24/7…), in the claim also appears in the cited passage. If one doesn't, the claim is rejected and goes through the redraft round.
 **Validation:** Replayed over all 211 claims the verifier approved in four live runs, the check rejects exactly one: the "continuously" overclaim. It wrongly rejects none.
 **Limit:** it catches invented numbers and absolute words, not every paraphrase that shifts meaning. The model verifier and human review remain the main defence for those.
+
+## D30. Reviewer rulings reach the agent through a checked data file (decided 2026-09-23)
+
+**Context:** In the reworded run, "How far back can we retrieve audit events?" was flagged as a conflict (1 year vs 180 days), even though the product owner had ruled these are different things (D24). The agent had no way to know about that ruling.
+**Decision:**
+- Rulings live in `data/sample/resolutions.yaml`. Each one records the exact statements involved, the ruling (`not_a_conflict`), short guidance, who decided, and when.
+- The drafter sees a ruling only when all of its statements are among the retrieved passages.
+- If the drafter still reports a conflict on a ruled pair, it gets one redraft that points to the ruling. If it insists, the conflict stands, which is the safe outcome.
+- A ruling is guidance, never evidence: it cannot be cited, and every claim is still verified against the documents.
+- `python -m tools.resolutions` and the tests confirm that every quoted statement still appears in an approved document, so a ruling cannot outlive the text it is about.
+
+**Why a file and not a prompt tweak:** rulings are company decisions with an owner and a date. They should be reviewable and auditable, and they should apply only where relevant. This is the first piece of the approved-answer library.
+
+## D31. An ambiguous question may be answered if every reading is answered (decided 2026-09-23)
+
+**Decision:**
+- An ambiguous golden question with `answer_all_facts` also passes when the answer covers every reading, with one documented fact per reading, and cites a source.
+- An answer to only one reading still fails, and it counts toward the false-answer rate.
+- The rule applies only where every reading can be answered from the documents and told apart by a fact: AMB-005 (limits) and AMB-008 (24/7). The others stay strict. The notice-period question is excluded because its readings mostly share "30 days", so a text check can't confirm that all five were covered.
+- The drafter prompt allows answering every reading explicitly, and forbids answering just one.
+- The clarification-rate gate now counts ambiguous questions that were handled either way.
+
+**Live trigger:** the reworded run answered "Do you offer round-the-clock availability?" with uptime only. Under this rule it still fails, correctly.

@@ -1,0 +1,24 @@
+# Reviewed rulings on statements that look contradictory but are not.
+#
+# When a reviewer decides that two approved statements do NOT conflict, record it here. The
+# drafter is shown a ruling only when its statements are among the passages retrieved for a
+# question. A ruling is guidance, never evidence: answers must still cite the documents, and
+# every claim is still verified against them.
+#
+# `python -m tools.resolutions` (and the test suite) checks that every quoted statement still
+# appears on its page in an APPROVED document, so a ruling cannot outlive the text it is about.
+#
+# ruling: not_a_conflict   (the only ruling type so far)
+
+resolutions:
+  - id: RES-001
+    topic: audit log retention
+    ruling: not_a_conflict
+    statements:
+      - {doc: KR-SEC-002, page: 3, quote: "Customer audit logs are retained for 1 year."}
+      - {doc: KR-ARC-009, page: 3, quote: "Audit events are available through the Audit Log API for 180 days."}
+    guidance: >-
+      These describe different things: how long audit logs are stored (1 year) and how far back the
+      Audit Log API can retrieve events (180 days). Answer with both figures, each cited.
+    decided_by: Kathy Talman
+    decided_on: "2026-09-23"

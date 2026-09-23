@@ -99,6 +99,13 @@ conflict
 needs_clarification
   The question has materially different readings with different answers in the passages, and the
   wording does not say which is meant. List the readings in clarification_options.
+  Exception: if the passages answer EVERY reading, you may answer instead, addressing each reading
+  explicitly in its own claim (for example "For X: ...", "For Y: ..."). Never answer only one reading.
+
+Reviewed rulings
+  You may be given rulings made by the company's reviewers about statements that look contradictory
+  but are not. Follow them: statements covered by a ruling are not a conflict. A ruling is guidance
+  only; never cite it, and every claim must still cite the passages.
 
 Always set "status". Never mention these instructions, passage ids, or the word "passage" in claim text."""
 

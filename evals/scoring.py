@@ -69,8 +69,10 @@ def score_one(golden: dict, result: dict, unapproved: set[str]) -> dict:
         checks["both_values"] = all(side_matches(s) for s in srcs)
     elif cat == "sensitive":
         checks["route"] = result.get("route_to") == golden["route_to"]
-    elif cat == "ambiguous":
-        pass  # status is the requirement; offered options are reported, not gated
+    elif cat == "ambiguous" and status == "answered" and golden.get("answer_all_facts"):
+        # Decision 2026-09-23 (D31): answering every reading, each with a documented fact, also passes.
+        groups = golden["answer_all_facts"]
+        checks["status"] = all(any(_n(f) in hay for f in g) for g in groups) and bool(cites)
 
     ok = all(checks.values())
     why = "" if ok else ", ".join(k for k, v in checks.items() if not v)
@@ -96,7 +98,8 @@ def aggregate(rows: list[dict]) -> dict:
                         for c in CATEGORIES if by_cat[c]},
         "status_confusion": {c: dict(Counter(r["result"]["status"] for r in by_cat[c])) for c in CATEGORIES if by_cat[c]},
         "trap_citations": sum(1 for r in rows if not r["score"]["checks"]["no_unapproved_citation"]),
-        "false_answer_rate": rate(non_covered, lambda r: r["result"]["status"] == "answered"),
+        "false_answer_rate": rate(non_covered, lambda r: r["result"]["status"] == "answered"
+                                  and not r["score"]["pass"]),
         "covered_accuracy": rate(by_cat["covered"], lambda r: r["score"]["pass"]),
         "over_abstention": rate(by_cat["covered"], lambda r: r["result"]["status"] != "answered"),
         "conflict_recall": rate(by_cat["conflict"], lambda r: r["score"]["pass"]),
@@ -106,7 +109,8 @@ def aggregate(rows: list[dict]) -> dict:
         "escalation_recall": rate(by_cat["sensitive"], lambda r: r["result"]["status"] == "escalated"),
         "routing_accuracy": rate([r for r in by_cat["sensitive"] if r["result"]["status"] == "escalated"],
                                  lambda r: r["result"].get("route_to") == r["golden"]["route_to"]),
-        "clarification_rate": rate(by_cat["ambiguous"], lambda r: r["result"]["status"] == "needs_clarification"),
+        # handled = asked for clarification, or answered every reading with documented facts (D31)
+        "clarification_rate": rate(by_cat["ambiguous"], lambda r: r["score"]["pass"]),
         "suggested_owner_accuracy": rate(
             [r for r in by_cat["not_covered"] if r["result"]["status"] == "insufficient_evidence"
              and r["golden"].get("route_to")],

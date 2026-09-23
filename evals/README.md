@@ -20,7 +20,8 @@
 |---|---|---|
 | `python -m evals.validate_golden_set` | no | Proves the golden set against the PDFs |
 | `python -m evals.retrieval_eval [--k 8] [--show-misses]` | no | Search recall for original and reworded questions |
-| `pytest -q` | no | 94 tests, including full scripted-model runs and live-run regressions |
+| `pytest -q` | no | 102 tests, including full scripted-model runs and live-run regressions |
+| `python -m tools.resolutions` | no | Check reviewer rulings against the approved documents (D30) |
 | `python -m evals.rescore <run> [--consistency]` | no | Re-score saved results under the current rules (D26) |
 | `python -m tools.generate_questionnaire ...` | no | New questionnaire plus hidden answer key |
 | `python -m tools.rewordings export / import` | no | Human review of rewordings |
@@ -38,7 +39,7 @@
 | Not covered | Status `insufficient_evidence`, or `escalated` to the golden owner (reported as over-escalation); no unapproved citation, and no `forbidden` string |
 | Conflict | Status `conflict`, both golden documents among the conflict sources, and each side's value is a phrase from that document's evidence (paraphrases like "the United States, the European Union…" for "US, EU" are accepted) |
 | Sensitive | Status `escalated` and `route_to` matches |
-| Ambiguous | Status `needs_clarification` |
+| Ambiguous | Status `needs_clarification`; or, for questions with `answer_all_facts`, an answer covering every reading with a documented fact (D31) |
 
 ## Release gates
 
@@ -51,7 +52,7 @@
 | Conflict recall | Conflict questions passing | ≥ 90% |
 | False conflicts | Hard negatives (COV-011, COV-012, COV-018, COV-033, COV-034) flagged as conflicts | 0 |
 | Escalation recall / routing accuracy | Sensitive questions escalated / routed correctly | ≥ 95% / ≥ 90% |
-| Clarification rate | Ambiguous questions returned for clarification | ≥ 80% |
+| Clarification rate | Ambiguous questions handled: clarification asked, or every reading answered (D31) | ≥ 80% |
 
 The false-answer rate is the metric that matters most. A wrong answer in a signed security questionnaire becomes a contractual representation; an abstention costs a reviewer a few minutes.
 

@@ -24,6 +24,7 @@ from agents.prompts import (CLASSIFIER_SCHEMA, CLASSIFIER_SYSTEM, DRAFTER_SCHEMA
                             REDRAFT_NOTE, VERIFIER_SCHEMA, VERIFIER_SYSTEM)
 from tools.ingest import Chunk
 from tools.kb_text import normalize
+from tools import resolutions as res_mod
 from tools.search_kb import Hit, KBIndex, default_index
 
 STATUSES = ("answered", "insufficient_evidence", "conflict", "escalated", "needs_clarification")
@@ -180,8 +181,12 @@ class Drafter:
         self.llm = llm
 
     def __call__(self, question: str, passages_text: str, rejections: list[dict] | None = None,
-                 previous: dict | None = None) -> dict:
+                 previous: dict | None = None, rulings: str = "", note: str = "") -> dict:
         user = f"Question: {question}\n\nPassages:\n{passages_text}"
+        if rulings:
+            user += f"\n\nReviewed rulings (guidance only, do not cite):\n{rulings}"
+        if note:
+            user += f"\n\n{note}"
         if rejections:
             lines = "\n".join(f"- \"{r['claim']}\": {r['reason'] or 'not supported by the cited passage'}"
                               for r in rejections)
@@ -228,8 +233,9 @@ class Verifier:
 # --------------------------------------------------------------------------- orchestrator
 
 class RFPAgent:
-    def __init__(self, llm: LLM, index: KBIndex | None = None, top_k: int = 8):
+    def __init__(self, llm: LLM, index: KBIndex | None = None, top_k: int = 8, resolutions=None):
         self.llm = llm
+        self.resolutions = tuple(res_mod.load() if resolutions is None else resolutions)
         self.index = index or default_index()
         self.top_k = top_k
         self.classify = Classifier(llm)
@@ -278,7 +284,11 @@ class RFPAgent:
 
         # 3-4. retrieve + draft
         passages_text, pid_map = _passages(hits)
-        d = self.draft(question, passages_text)
+        rulings = [r for r in self.resolutions if r.applies_to([h.chunk for h in hits])]
+        rulings_text = "\n".join(r.prompt_text() for r in rulings)
+        if rulings:
+            t["rulings"] = [r.id for r in rulings]
+        d = self.draft(question, passages_text, rulings=rulings_text)
         t["draft"] = d
         status = infer_status(d)
         if status != d.get("status"):
@@ -290,6 +300,16 @@ class RFPAgent:
             return res
 
         if status == "conflict":
+            ruled = self._ruled_out(d, pid_map, rulings)
+            if ruled:
+                # A reviewer already ruled these statements are not a conflict: one redraft.
+                d2 = self.draft(question, passages_text, rulings=rulings_text,
+                                note=f"Your draft reported a conflict between statements that reviewer ruling "
+                                     f"{ruled.id} says do not conflict. Answer the question using those "
+                                     f"statements, each cited, following the ruling's guidance.")
+                t["redraft_for_ruling"] = {"ruling": ruled.id, "draft": d2}
+                if infer_status(d2) == "answered":
+                    return self._finish_answer(res, d2, pid_map, owner, hits, question, passages_text)
             return self._finish_conflict(res, d, pid_map, owner)
 
         if status == "answered":
@@ -320,6 +340,16 @@ class RFPAgent:
         res.route_to, res.route_reason = owner, why
         res.related_excerpts = _excerpts(hits)
         return res
+
+    @staticmethod
+    def _ruled_out(d: dict, pid_map: dict[str, Chunk], rulings: list):
+        """The not_a_conflict ruling that covers every side of a drafted conflict, if any."""
+        sides = [pid_map.get(s.get("passage_id", "")) for s in (d.get("conflict") or {}).get("sides") or []]
+        pages = {(c.doc_id, c.page) for c in sides if c is not None}
+        if len(pages) < 2:
+            return None
+        return next((r for r in rulings if r.ruling == "not_a_conflict"
+                     and pages <= {(doc, page) for doc, page, _ in r.statements}), None)
 
     def _verify_draft(self, d: dict, pid_map: dict[str, Chunk]) -> tuple[list[dict], list[dict]]:
         claims = [c for c in d.get("claims") or [] if c.get("text")]
