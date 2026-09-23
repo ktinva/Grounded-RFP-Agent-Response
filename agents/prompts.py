@@ -141,7 +141,8 @@ directly states it. Rules:
   vendor or product ("Kestrel", "Kestrel Insight", "the platform") as the one doing what the source
   describes is fine; that alone never makes a claim unsupported.
 - For a supported claim, copy the exact sentence or phrase from the source that supports it into
-  "quote", character for character. If you cannot quote it, the claim is unsupported."""
+  "quote", character for character. If the support comes from more than one sentence, copy each
+  sentence exactly and separate them with " ... ". If you cannot quote it, the claim is unsupported."""
 
 VERIFIER_SCHEMA = {
     "type": "object",

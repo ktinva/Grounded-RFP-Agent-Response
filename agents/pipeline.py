@@ -70,9 +70,23 @@ def _passages(hits: list[Hit]) -> tuple[str, dict[str, Chunk]]:
     return "\n\n".join(blocks), ids
 
 
+def _words(s: str) -> str:
+    """Normalize for verbatim matching: case, whitespace, and punctuation are ignored; words and
+    their order are not. ("within 48 hours after" matches "within 48 hours, after".)"""
+    s = re.sub(r"(?<=\d),(?=\d{3})", "", normalize(s))          # 3,000 -> 3000
+    return re.sub(r"\s+", " ", re.sub(r"[^\w%/.-]+|(?<!\d)\.|\.(?!\d)", " ", s)).strip()
+
+
+QUOTE_SPLIT = re.compile(r"\s*(?:\.\.\.|…|\[\.\.\.\])\s*|(?<=[.!?])\s+(?=[A-Z])")
+
+
 def _quote_in(quote: str, text: str) -> bool:
-    q = normalize(quote).strip(" .\"'")
-    return len(q) >= 5 and q in normalize(text)
+    """True if the quote is verbatim in the text. A quote stitched from several sentences of the same
+    passage (joined by '...' or simply placed one after another) passes if every piece is verbatim."""
+    hay = _words(text)
+    pieces = [_words(p) for p in QUOTE_SPLIT.split(quote or "")]
+    pieces = [p for p in pieces if p]
+    return bool(pieces) and sum(len(p) for p in pieces) >= 5 and all(p in hay for p in pieces)
 
 
 def _num_norm(s: str) -> str:
@@ -181,7 +195,7 @@ class Verifier:
             if r.get("supported") and src is None:
                 reason = "quote not found verbatim in the cited source"
             results.append({"claim": cl.get("text", ""), "supported": ok, "reason": reason,
-                            "quote": quote if ok else "", "chunk": src})
+                            "quote": quote if ok else "", "raw_quote": quote, "chunk": src})
         return results
 
 
@@ -341,11 +355,11 @@ class RFPAgent:
             c = pid_map.get(s.get("passage_id", ""))
             value = (s.get("value") or "").strip()
             # mechanical check: the stated value must literally appear in its source
-            if c and value and _num_norm(value) in _num_norm(c.text):
+            if c and value and _words(value) and _words(value) in _words(c.text):
                 sides.append({"doc": c.doc_id, "page": c.page, "chunk_id": c.chunk_id,
                               "doc_title": c.doc_title, "value": value})
         docs = {s["doc"] for s in sides}
-        values = {_num_norm(s["value"]) for s in sides}
+        values = {_words(s["value"]) for s in sides}
         if len(docs) < 2 or len(values) < 2:
             res.trace["conflict_rejected"] = conf
             return self._insufficient(res, "A possible conflict was detected but could not be verified; "

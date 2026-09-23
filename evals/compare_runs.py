@@ -15,6 +15,7 @@ from pathlib import Path
 METRICS = ["pass_rate", "false_answer_rate", "covered_accuracy", "over_abstention", "conflict_recall",
            "false_conflicts", "over_escalation", "escalation_recall", "routing_accuracy", "clarification_rate", "trap_citations",
            "consistency_issues"]
+NEUTRAL = {"consistency_issues"}   # informational: fewer flags is not "worse" or "better" by itself
 LOWER_IS_BETTER = {"false_answer_rate", "over_abstention", "false_conflicts", "trap_citations", "over_escalation"}
 
 
@@ -36,7 +37,9 @@ def compare(old: dict, new: dict) -> str:
         if a is None and b is None:
             continue
         mark = ""
-        if isinstance(a, (int, float)) and isinstance(b, (int, float)) and a != b:
+        if k in NEUTRAL:
+            mark = ""
+        elif isinstance(a, (int, float)) and isinstance(b, (int, float)) and a != b:
             better = (b < a) if k in LOWER_IS_BETTER else (b > a)
             mark = "better" if better else "**worse**"
         L.append(f"| {k.replace('_', ' ')} | {_fmt(a)} | {_fmt(b)} | {mark} |")

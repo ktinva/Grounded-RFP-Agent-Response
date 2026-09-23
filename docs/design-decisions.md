@@ -167,3 +167,16 @@ A running log. Each entry states the decision, why, and what it costs.
 
 **Decision:** `python -m evals.rescore <run>` re-scores saved results under the current golden set and rules. `--consistency` re-applies the rule-based consistency resolution. No model calls are made, and the previous scorecard is kept as `*.prev`.
 **Caveat:** a re-scored run shows the effect of scoring and post-processing changes only. Prompt and code changes to drafting still need a live run.
+
+## D27. Verbatim means same words in the same order, not same punctuation (run 3)
+
+**Context:** Run 3 (2026-09-23) passed every release gate on both the sample (96%) and a generated Acme Health file (98%). The two questions it lost were both caused by checks in my code that were stricter than intended:
+- **On-premises:** a correct answer was dropped because the verifier supported it with two sentences from the same passage. The code required one continuous quote.
+- **Breach notification:** a real conflict was rejected because the drafter quoted "within 48 hours after becoming aware" and the DPA has a comma after "hours".
+
+**Decision:** Quote and conflict-value checks now ignore case, whitespace, and punctuation, but not words, numbers, or their order. A quote made of several pieces (joined by "..." or placed one after another) passes only if every piece is verbatim in the cited passage. Tests show that fabricated text, an inserted "only", and a changed number are still rejected. The verifier prompt now tells it how to quote multi-sentence support.
+
+## D28. A generated questionnaire is only an independent test if its wording is new
+
+**Context:** The Acme Health run (40 questions, Yes/No layout, seed 42) reused 78 of its 83 model responses from the cache, because its questions are worded exactly like the golden set. It proves the Yes/No layout parses and scores correctly, but its answers are the sample run's answers.
+**Decision:** For a generalization check, generate with reworded questions (`--reworded 1.0`). Until rewordings are approved, that means `--include-pending`, and the run is labeled exploratory.

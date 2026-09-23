@@ -266,3 +266,44 @@ def test_audit_log_answer_must_state_both_figures():
     both = {"status": "answered", "answer": "Logs are retained for 1 year; the API serves 180 days.", "citations": cites}
     one = {"status": "answered", "answer": "Logs are retained for 1 year.", "citations": cites[:1]}
     assert score_one(g, both, set())["pass"] and not score_one(g, one, set())["pass"]
+
+
+# --- run 3 (2026-09-23): verbatim checks that were stricter than they should be ------------------
+
+@pytest.mark.parametrize("quote, ok", [
+    # HD-03: the verifier supported a correct claim with two sentences of the same passage
+    ("Kestrel Insight is delivered as software-as-a-service (SaaS) hosted on Amazon Web Services (AWS). "
+     "Kestrel Insight is not available for on-premises or customer-hosted deployment.", True),
+    ("hosted on Amazon Web Services (AWS) ... not available for on-premises or customer-hosted deployment", True),
+    # still strict about words and numbers
+    ("Kestrel Insight is available for on-premises deployment.", False),
+    ("Kestrel Insight is delivered only as software-as-a-service", False),
+])
+def test_stitched_quotes_pass_only_when_every_piece_is_verbatim(quote, ok):
+    from agents.pipeline import _quote_in
+    from tools.ingest import ingest
+    text = next(c.text for c in ingest() if c.chunk_id == "KR-PROD-001:p2:c2")
+    assert _quote_in(quote, text) is ok
+
+
+def test_conflict_value_with_dropped_comma_is_accepted():
+    """Run 3 IR-01: 'within 48 hours after becoming aware' (source has a comma) killed a real conflict."""
+    q = "If our data is compromised, how quickly will you tell us?"
+
+    def draft(s, u):
+        return {"status": "conflict", "conflict": {"topic": "breach notification", "sides": [
+            {"passage_id": _pid(u, "within 72 hours of confirmation"), "value": "within 72 hours of confirmation"},
+            {"passage_id": _pid(u, "in any event within 48 hours"), "value": "within 48 hours after becoming aware"}]}}
+    llm = ScriptedLLM({"classify": _cls(queries=["breach notification timeline"]), "draft": draft, "verify": None})
+    r = RFPAgent(llm).answer(q)
+    assert r.status == "conflict" and {s["doc"] for s in r.conflict["sources"]} == {"KR-SEC-002", "KR-DPA-006"}
+
+
+def test_conflict_value_with_a_changed_number_is_still_rejected():
+    def draft(s, u):
+        return {"status": "conflict", "conflict": {"topic": "breach notification", "sides": [
+            {"passage_id": _pid(u, "within 72 hours of confirmation"), "value": "within 72 hours of confirmation"},
+            {"passage_id": _pid(u, "in any event within 48 hours"), "value": "within 24 hours after becoming aware"}]}}
+    llm = ScriptedLLM({"classify": _cls(queries=["breach notification timeline"]), "draft": draft, "verify": None})
+    r = RFPAgent(llm).answer("If our data is compromised, how quickly will you tell us?")
+    assert r.status != "conflict"
