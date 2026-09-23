@@ -20,7 +20,7 @@
 |---|---|---|
 | `python -m evals.validate_golden_set` | no | Proves the golden set against the PDFs |
 | `python -m evals.retrieval_eval [--k 8] [--show-misses]` | no | Search recall for original and reworded questions |
-| `pytest -q` | no | 102 tests, including full scripted-model runs and live-run regressions |
+| `pytest -q` | no | 105 tests, including full scripted-model runs and live-run regressions |
 | `python -m tools.resolutions` | no | Check reviewer rulings against the approved documents (D30) |
 | `python -m evals.rescore <run> [--consistency]` | no | Re-score saved results under the current rules (D26) |
 | `python -m tools.generate_questionnaire ...` | no | New questionnaire plus hidden answer key |

@@ -118,3 +118,52 @@ def test_ambiguous_questions_without_answer_facts_stay_strict():
     g = _g("AMB-001")                      # readings include a conflicted fact: must clarify
     assert not g.get("answer_all_facts")
     assert not score_one(g, _res("Backups are retained for 30 days."), set())["pass"]
+
+
+# --- Borealis re-run (2026-09-23): the ruled audit-log answer was lost twice ------------------
+
+def test_quote_stitched_across_two_cited_chunks_is_accepted_with_a_citation_each():
+    """Live 4.7.1: one claim stated both figures, cited P2 and P1, and its quote joined a sentence
+    from each. Every piece is verbatim in a cited chunk, so it now passes and cites both pages."""
+    def draft(s, u):
+        return {"status": "answered", "claims": [{
+            "text": "Customer audit logs are retained for 1 year, and audit events are available through "
+                    "the Audit Log API for 180 days.",
+            "passage_ids": [_pid(u, "Audit Log API for 180 days"), _pid(u, ONE_YEAR)]}]}
+    llm = ScriptedLLM({"classify": _cls(["audit log retention API 180 days 1 year"]), "draft": draft,
+                       "verify": lambda s, u: {"results": [
+                           {"claim_index": 0, "supported": True, "quote": f"{ONE_YEAR} ... {API_180}"}]}})
+    r = RFPAgent(llm).answer(AUDIT_Q)
+    assert r.status == "answered" and "1 year" in r.answer and "180 days" in r.answer
+    assert {(c.doc, c.page) for c in r.citations} == {("KR-SEC-002", 3), ("KR-ARC-009", 3)}
+    assert {c.quote for c in r.citations} == {ONE_YEAR, API_180}
+    assert score_one(_g("COV-034"), r.to_dict(), set())["pass"]
+
+
+def test_stitched_quote_with_a_piece_from_no_cited_chunk_is_rejected():
+    from agents.pipeline import match_quote
+    from tools.ingest import ingest
+    chunks = [c for c in ingest() if ONE_YEAR.lower() in c.text.lower() or API_180.lower() in c.text.lower()]
+    assert len(match_quote(f"{ONE_YEAR} ... {API_180}", chunks)) == 2
+    assert match_quote(f"{ONE_YEAR} ... Audit events are available for 2 years.", chunks) == []
+    assert match_quote(f"{ONE_YEAR} ... {API_180}", chunks[:1]) == []      # other page not cited
+
+
+def test_repair_draft_keeps_the_reviewer_ruling():
+    """Live 4.7.1: the repair draft was sent without the ruling, said "conflict", and was discarded."""
+    seen = []
+
+    def draft(s, u):
+        seen.append("RES-001" in u)
+        if "previous answer" not in u:            # first draft: one claim whose quote will fail
+            return {"status": "answered", "claims": [
+                {"text": ONE_YEAR, "passage_ids": [_pid(u, ONE_YEAR)]},
+                {"text": "Audit events can be retrieved for 18 months.", "passage_ids": [_pid(u, API_180)]}]}
+        return {"status": "answered", "claims": [
+            {"text": ONE_YEAR, "passage_ids": [_pid(u, ONE_YEAR)]},
+            {"text": API_180, "passage_ids": [_pid(u, "Audit Log API for 180 days")]}]}
+    llm = ScriptedLLM({"classify": _cls(["audit log retention API 180 days 1 year"]), "draft": draft,
+                       "verify": _verify_exact})
+    r = RFPAgent(llm).answer(AUDIT_Q)
+    assert seen == [True, True]
+    assert r.status == "answered" and "1 year" in r.answer and "180 days" in r.answer

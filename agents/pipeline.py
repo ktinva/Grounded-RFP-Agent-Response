@@ -111,6 +111,30 @@ def _quote_in(quote: str, text: str) -> bool:
     return bool(pieces) and sum(len(p) for p in pieces) >= 5 and all(p in hay for p in pieces)
 
 
+def match_quote(quote: str, chunks: list[Chunk]) -> list[tuple[Chunk, str]]:
+    """Where a verifier quote comes from, as (chunk, part of the quote) pairs; empty if not verbatim.
+
+    A quote wholly inside one cited chunk maps to that chunk. A quote stitched from several cited
+    chunks (live: a claim stating both audit-log figures, from two documents) passes only if every
+    piece is verbatim in one of the claim's own cited chunks; each chunk then gets its own citation."""
+    quote = (quote or "").strip()
+    if not quote:
+        return []
+    whole = next((c for c in chunks if _quote_in(quote, c.text)), None)
+    if whole is not None:
+        return [(whole, quote)]
+    pieces = [p.strip() for p in QUOTE_SPLIT.split(quote) if _words(p)]
+    if len(pieces) < 2:
+        return []
+    by_chunk: dict[str, tuple[Chunk, list[str]]] = {}
+    for p in pieces:
+        c = next((c for c in chunks if _quote_in(p, c.text)), None)
+        if c is None:
+            return []
+        by_chunk.setdefault(c.chunk_id, (c, []))[1].append(p)
+    return [(c, " ... ".join(ps)) for c, ps in by_chunk.values()]
+
+
 def _num_norm(s: str) -> str:
     return re.sub(r"(?<=\d),(?=\d{3})", "", normalize(s)).strip(" .;:,\"'")
 
@@ -215,7 +239,8 @@ class Verifier:
         for i, (cl, chunks) in enumerate(zip(claims, prepared)):
             r = by_idx.get(i, {"supported": False, "reason": "verifier returned no result"})
             quote = (r.get("quote") or "").strip()
-            src = next((c for c in chunks if quote and _quote_in(quote, c.text)), None)
+            sources = match_quote(quote, chunks)
+            src = sources[0][0] if sources else None
             ok = bool(r.get("supported")) and src is not None
             reason = r.get("reason", "")
             if r.get("supported") and src is None:
@@ -226,7 +251,8 @@ class Verifier:
                     ok = False
                     reason = "claim adds details not in the cited source: " + ", ".join(repr(x) for x in extra)
             results.append({"claim": cl.get("text", ""), "supported": ok, "reason": reason,
-                            "quote": quote if ok else "", "raw_quote": quote, "chunk": src})
+                            "quote": quote if ok else "", "raw_quote": quote, "chunk": src,
+                            "sources": sources if ok else []})
         return results
 
 
@@ -309,11 +335,12 @@ class RFPAgent:
                                      f"statements, each cited, following the ruling's guidance.")
                 t["redraft_for_ruling"] = {"ruling": ruled.id, "draft": d2}
                 if infer_status(d2) == "answered":
-                    return self._finish_answer(res, d2, pid_map, owner, hits, question, passages_text)
+                    return self._finish_answer(res, d2, pid_map, owner, hits, question, passages_text,
+                                               rulings_text)
             return self._finish_conflict(res, d, pid_map, owner)
 
         if status == "answered":
-            return self._finish_answer(res, d, pid_map, owner, hits, question, passages_text)
+            return self._finish_answer(res, d, pid_map, owner, hits, question, passages_text, rulings_text)
 
         return self._insufficient(res, d.get("missing") or "The approved documents do not address this question.",
                                   owner, hits)
@@ -357,11 +384,13 @@ class RFPAgent:
 
     @staticmethod
     def _trace_checks(checks: list[dict]) -> list[dict]:
-        return [{k: v for k, v in c.items() if k != "chunk"} |
-                {"chunk_id": c["chunk"].chunk_id if c["chunk"] else None} for c in checks]
+        return [{k: v for k, v in c.items() if k not in ("chunk", "sources")} |
+                {"chunk_id": c["chunk"].chunk_id if c["chunk"] else None,
+                 "chunk_ids": [ch.chunk_id for ch, _ in c.get("sources") or []]} for c in checks]
 
     def _finish_answer(self, res: Result, d: dict, pid_map: dict[str, Chunk], owner: str,
-                       hits: list[Hit], question: str = "", passages_text: str = "") -> Result:
+                       hits: list[Hit], question: str = "", passages_text: str = "",
+                       rulings_text: str = "") -> Result:
         claims, checks = self._verify_draft(d, pid_map)
         if not claims:
             return self._insufficient(res, "Draft had no cited claims.", owner, hits)
@@ -370,7 +399,9 @@ class RFPAgent:
         # One repair round: the drafter sees why claims were rejected and may restate them faithfully.
         rejected = [c for c in checks if not c["supported"]]
         if rejected and question:
-            d2 = self.draft(question, passages_text, rejections=rejected, previous=d)
+            # The repair draft must see the same reviewer rulings as the first draft (live: without
+            # them, a ruled audit-log answer reverted to "conflict" and was thrown away).
+            d2 = self.draft(question, passages_text, rejections=rejected, previous=d, rulings=rulings_text)
             res.trace["redraft"] = d2
             if infer_status(d2) == "answered":
                 claims2, checks2 = self._verify_draft(d2, pid_map)
@@ -391,13 +422,17 @@ class RFPAgent:
         res.answer = " ".join(c["claim"].strip().rstrip(".") + "." for c in supported)
         res.trace["answer_claims"] = [{"text": c["claim"], "chunk_id": c["chunk"].chunk_id, "doc": c["chunk"].doc_id,
                                        "page": c["chunk"].page, "doc_title": c["chunk"].doc_title,
-                                       "quote": c["quote"]} for c in supported]
+                                       "quote": c["quote"],
+                                       "sources": [{"chunk_id": ch.chunk_id, "doc": ch.doc_id, "page": ch.page,
+                                                    "quote": q} for ch, q in c["sources"]]}
+                                      for c in supported]
         seen = set()
         for c in supported:
-            key = (c["chunk"].chunk_id, c["quote"])
-            if key not in seen:
-                seen.add(key)
-                res.citations.append(_cite(c["chunk"], c["quote"]))
+            # one citation per chunk the quote came from, each with only that chunk's part of the quote
+            for ch, q in c["sources"] or [(c["chunk"], c["quote"])]:
+                if (ch.chunk_id, q) not in seen:
+                    seen.add((ch.chunk_id, q))
+                    res.citations.append(_cite(ch, q))
         res.status = "answered"
         if len(supported) < len(checks):
             res.route_to = owner

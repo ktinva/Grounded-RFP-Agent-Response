@@ -210,3 +210,16 @@ A running log. Each entry states the decision, why, and what it costs.
 - The clarification-rate gate now counts ambiguous questions that were handled either way.
 
 **Live trigger:** the reworded run answered "Do you offer round-the-clock availability?" with uptime only. Under this rule it still fails, correctly.
+
+## D32. Quotes may span a claim's cited pages, and the repair draft keeps the rulings (Borealis re-run)
+
+**Context:** In the Borealis re-run, the drafter followed ruling RES-001 and answered "How far back can we retrieve audit events?" with both figures. The answer was still lost, by two code bugs:
+1. One claim stated both figures and cited two pages, so its verifier quote joined a sentence from each. The verbatim check (D12, D27) only looked for all pieces inside **one** chunk, so it rejected a correct claim.
+2. The repair draft (D20) was not given the rulings. Without them it reported a conflict again, and was discarded, leaving only "180 days".
+
+**Decision:**
+- A quote passes if it is verbatim in one cited chunk, or if every piece of it is verbatim in one of the claim's **own** cited chunks. A piece that appears in no cited chunk still fails the whole claim, and the number and overclaim check (D29) still runs against the cited text.
+- Each chunk a quote came from gets its own citation, carrying only its part of the quote, so the reviewer sees the exact sentence on each page.
+- The repair draft receives the same rulings as the first draft.
+
+**Scope:** this only loosens a check that was stricter than intended; any quote accepted before is still accepted in the same way. The other miss in that run ("round-the-clock availability" answered with uptime only, D31) is a classifier judgment on a reworded question and is left as a known miss rather than tuned for.
