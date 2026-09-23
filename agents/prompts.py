@@ -89,7 +89,10 @@ insufficient_evidence
 
 conflict
   Passages from DIFFERENT documents state different values for the specific fact the question asks
-  about. Do not choose between them. For each side give the passage id and the value, copying the
+  about. Check for this BEFORE answering: even when one passage answers the question directly, look
+  at every passage from other documents (contracts and addenda especially) that covers the same
+  fact. If any of them states a different value, list, or limit, the status is conflict, not
+  answered. Do not choose between them. For each side give the passage id and the value, copying the
   value's exact words from the passage. Values that differ because they apply to different editions,
   tiers, or different subjects are NOT a conflict.
 

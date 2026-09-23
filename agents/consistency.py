@@ -25,7 +25,7 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass
 
 from agents.llm import LLM
-from agents.pipeline import Result
+from agents.pipeline import Citation, Result
 
 CONSISTENCY_SYSTEM = """You review a vendor's draft answers to one customer questionnaire, all on the same topic.
 Find pairs of answers that contradict each other: they state different values for the same fact
@@ -139,7 +139,61 @@ def contradictions(results: list[Result], llm: LLM) -> list[Issue]:
     return issues
 
 
-def check_consistency(results: list[Result], llm: LLM | None = None) -> list[Issue]:
+def _claims_from_answer(r: Result) -> list[dict]:
+    """Older results have no per-claim trace: pair answer sentences with citations when counts match."""
+    sents = [x for x in re.split(r"(?<=[.!?])\s+", r.answer.strip()) if x]
+    cites = r.citations
+    if len(sents) == len(cites):
+        pairs = zip(sents, cites)
+    else:
+        pairs = [(r.answer, cites[0])] if cites else []
+    return [{"text": t, "chunk_id": c.chunk_id, "doc": c.doc, "page": c.page, "doc_title": c.doc_title,
+             "quote": c.quote} for t, c in pairs]
+
+
+def resolve_conflict_reliance(results: list[Result], issues: list[Issue]) -> list[str]:
+    """Stop answers that repeat a contested value from going out as settled facts.
+
+    For each flagged answer, remove the statements that contain a value unique to one side of the
+    conflict. If the question itself names that contested value (for example it asks about the
+    United Kingdom), or nothing is left, the question becomes a conflict. Otherwise the remaining,
+    uncontested statements stay as the answer and the question is flagged for review.
+    Returns the refs that changed.
+    """
+    by_ref = {r.ref: r for r in results}
+    changed = []
+    for i in issues:
+        if i.kind != "conflict_reliance":
+            continue
+        r, other = by_ref.get(i.refs[0]), by_ref.get(i.refs[1])
+        if r is None or other is None or r.status != "answered" or not other.conflict:
+            continue
+        toks = set().union(*_distinguishing(other.conflict).values())
+        claims = r.trace.get("answer_claims") or _claims_from_answer(r)
+        keep = [c for c in claims if not (_tokens(c["text"]) & toks)]
+        r.trace["answer_before_consistency"] = r.answer
+        if keep and not (_tokens(r.question) & toks):
+            r.answer = " ".join(c["text"].strip().rstrip(".") + "." for c in keep)
+            r.citations = [Citation(c["doc"], c["page"], c["chunk_id"], c["doc_title"], c["quote"]) for c in keep]
+            r.trace["answer_claims"] = keep
+            r.route_to = other.route_to
+            r.route_reason = (f"A statement repeating a contested value was removed (see {other.ref}); "
+                              "confirm before sending.")
+        else:
+            r.status = "conflict"
+            r.conflict = dict(other.conflict)
+            sides = other.conflict.get("sources", [])
+            r.answer = "Approved documents disagree: " + "; ".join(
+                f"{s.get('doc_title', s['doc'])} (p.{s['page']}) says {s['value']}" for s in sides) + "."
+            r.citations = [Citation(s["doc"], s["page"], s["chunk_id"], s.get("doc_title", s["doc"]), s["value"])
+                           for s in sides]
+            r.route_to, r.route_reason = other.route_to, (f"The drafted answer repeated one side of a conflict "
+                                                          f"found in {other.ref}; the owning team must confirm.")
+        changed.append(r.ref)
+    return changed
+
+
+def check_consistency(results: list[Result], llm: LLM | None = None, resolve: bool = True) -> list[Issue]:
     issues = conflict_reliance(results)
     if llm is not None:
         seen = {tuple(sorted(i.refs)) for i in issues}
@@ -149,4 +203,6 @@ def check_consistency(results: list[Result], llm: LLM | None = None) -> list[Iss
         for ref in i.refs:
             if ref in by_ref:
                 by_ref[ref].trace.setdefault("consistency", []).append(i.to_dict())
+    if resolve:
+        resolve_conflict_reliance(results, issues)
     return issues

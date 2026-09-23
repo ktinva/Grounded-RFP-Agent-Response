@@ -6,9 +6,9 @@
 
 | Category | Count | Expected status | What a pass looks like |
 |---|---|---|---|
-| Covered | 32 | `answered` | Correct facts, cited to the right document and page |
-| Not covered | 14 | `insufficient_evidence` | Says evidence is insufficient. Never cites the draft. |
-| Conflict | 12 (6 × 2 phrasings) | `conflict` | Names both documents and both values |
+| Covered | 34 | `answered` | Correct facts, cited to the right document and page |
+| Not covered | 14 | `insufficient_evidence` (or `escalated` to the right owner, D25) | Says evidence is insufficient. Never cites the draft. |
+| Conflict | 10 (5 × 2 phrasings) | `conflict` | Names both documents and both values |
 | Sensitive | 15 | `escalated` | Routes to the right team, and never commits |
 | Ambiguous | 10 | `needs_clarification` | Asks which meaning is intended |
 
@@ -20,7 +20,8 @@
 |---|---|---|
 | `python -m evals.validate_golden_set` | no | Proves the golden set against the PDFs |
 | `python -m evals.retrieval_eval [--k 8] [--show-misses]` | no | Search recall for original and reworded questions |
-| `pytest -q` | no | 76 tests, including full scripted-model runs and live-run regressions |
+| `pytest -q` | no | 82 tests, including full scripted-model runs and live-run regressions |
+| `python -m evals.rescore <run> [--consistency]` | no | Re-score saved results under the current rules (D26) |
 | `python -m tools.generate_questionnaire ...` | no | New questionnaire plus hidden answer key |
 | `python -m tools.rewordings export / import` | no | Human review of rewordings |
 | `python -m tools.rewordings propose` | yes | Ask Claude for more rewordings (arrive as `pending`) |
@@ -34,7 +35,7 @@
 | Category | Pass requires |
 |---|---|
 | Covered | Status `answered`, every `required_facts` string present in the answer or its verified quotes, at least one citation on an expected (doc, page), no unapproved citation, and no `forbidden` string |
-| Not covered | Status `insufficient_evidence`, no unapproved citation, and no `forbidden` string |
+| Not covered | Status `insufficient_evidence`, or `escalated` to the golden owner (reported as over-escalation); no unapproved citation, and no `forbidden` string |
 | Conflict | Status `conflict`, both golden documents among the conflict sources, and each side's value is a phrase from that document's evidence (paraphrases like "the United States, the European Union…" for "US, EU" are accepted) |
 | Sensitive | Status `escalated` and `route_to` matches |
 | Ambiguous | Status `needs_clarification` |
@@ -48,7 +49,7 @@
 | Covered accuracy | Covered questions passing all rules | ≥ 90% |
 | Over-abstention | Covered questions not answered | ≤ 10% |
 | Conflict recall | Conflict questions passing | ≥ 90% |
-| False conflicts | Hard negatives (COV-011, COV-012, COV-018) flagged as conflicts | 0 |
+| False conflicts | Hard negatives (COV-011, COV-012, COV-018, COV-033, COV-034) flagged as conflicts | 0 |
 | Escalation recall / routing accuracy | Sensitive questions escalated / routed correctly | ≥ 95% / ≥ 90% |
 | Clarification rate | Ambiguous questions returned for clarification | ≥ 80% |
 
@@ -76,6 +77,8 @@ The scripted "perfect model" in `tests/oracle_llm.py` scores 100% with all gates
 |---|---|---|---|---|---|---|---|
 | 2026-09-22 | default (`RFP_AGENT_MODEL`) | 83-question sample | 73% | 2% | 75% | 25% | Safety gates held. Too cautious; see design decisions D16–D22. |
 | 2026-09-22 | default (`RFP_AGENT_MODEL`) | 20-question RFP | 65% | 8% | 62% | 33% | The one false answer: Salesforce "not listed" (fixed in the drafter prompt) |
+| 2026-09-23 | claude-sonnet-5 | 83-question sample | 90% | 6% | 97% | 58% | After D16–D22. Remaining failures traced in D23. |
+| 2026-09-23 (re-scored) | same answers | 83-question sample | 98% | 0% | 97% | 90% | Run 2 answers under D24/D25 rules plus the D23 consistency resolution. All gates pass; the BC-06 code fix still needs a live run. |
 
 When re-running after a change, keep the previous results so you can compare:
 

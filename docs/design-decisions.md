@@ -137,3 +137,33 @@ A running log. Each entry states the decision, why, and what it costs.
 - Reviewer decisions live in `review_state.json` beside the run. Only answered questions can be approved unchanged; anything else must be written by the reviewer and is marked human-written.
 - Export writes approved and edited answers into a copy of the original file, at the cell or paragraph the parser recorded. It refuses to overwrite the original.
 **Why:** Buyers want their own file back. "The agent drafted it, a named person approved it" must hold for every sentence that leaves the company.
+
+## D23. Second live run: the remaining silent picks and format slips
+
+**Context:** Run 2 (2026-09-23) passed 90% overall (from 73%) and covered accuracy reached 97%, but conflict recall was 58% and the false-answer rate was 6%. Tracing the failures turned up four causes:
+1. The drafter answered "UK hosting is available" from the product overview without noticing that the DPA disagrees.
+2. A correct 30-vs-90-day backup conflict was rejected because the quoted value ended in a full stop, and the draft sent `"claims": "null"`.
+3. The scorer failed a correct conflict because the agent quoted a longer sentence than the golden evidence.
+4. The two audit-log answers stated both figures, which, as it turned out, is the right behaviour (D24).
+
+**Decision:**
+- The drafter prompt now tells it to check other documents, contracts especially, for a different value before answering.
+- Draft fields are type-sanitised.
+- Conflict values are compared without trailing punctuation.
+- The scorer accepts a quote that contains the evidence.
+- An answer that repeats one side of a conflict found elsewhere in the questionnaire is resolved automatically (`resolve_conflict_reliance`):
+  - If the question is *about* the contested value (it names "United Kingdom"), or no uncontested statement remains, the question becomes a conflict.
+  - Otherwise the contested statement is removed, and the rest of the answer stays, flagged for review.
+
+## D24. Audit logs: 1 year stored vs 180 days via API is not a conflict (reviewed 2026-09-23)
+
+**Decision (product owner):** An answer that states both figures with both citations is correct. CF-011 and CF-012 became covered questions COV-033 and COV-034. They must state "1 year" *and* "180 days", and they are also hard negatives for conflict detection. The entries were edited in place, so questionnaire references stay stable.
+
+## D25. Escalating an undocumented topic to the right owner is a pass (reviewed 2026-09-23)
+
+**Decision (product owner):** For not-covered questions, `escalated` to the golden owner scores the same as `insufficient_evidence`. Escalation to the wrong team still fails. Over-escalation is reported as its own number (14% in run 2), so the noise it creates for legal and SE stays visible.
+
+## D26. Re-score without re-running
+
+**Decision:** `python -m evals.rescore <run>` re-scores saved results under the current golden set and rules. `--consistency` re-applies the rule-based consistency resolution. No model calls are made, and the previous scorecard is kept as `*.prev`.
+**Caveat:** a re-scored run shows the effect of scoring and post-processing changes only. Prompt and code changes to drafting still need a live run.

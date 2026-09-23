@@ -220,6 +220,9 @@ def test_answer_citing_a_conflicted_passage_is_flagged_without_model():
     issues = check_consistency([conflict, answered, unrelated], llm=None)
     assert [(i.kind, i.refs) for i in issues] == [("conflict_reliance", ["GN-02", "BC-05"])]
     assert answered.trace["consistency"] and "consistency" not in unrelated.trace
+    # the only statement repeated the contested value, so the question becomes a conflict
+    assert answered.status == "conflict" and answered.trace["answer_before_consistency"]
+    assert unrelated.status == "answered"
 
 
 def test_model_contradictions_must_name_real_answered_questions():

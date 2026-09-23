@@ -58,7 +58,9 @@ def scorecard_md(name: str, key: dict, m: dict, rows: list[dict], usage: dict | 
         L.append(f"| {metric.replace('_', ' ')} | {_pct(m.get(metric))} | {op} {_pct(thr) if isinstance(thr, float) else thr} "
                  f"| {'n/a' if ok is None else ('PASS' if ok else '**FAIL**')} |")
     L += ["", f"Suggested-owner accuracy on not-covered questions (informational): "
-              f"{_pct(m.get('suggested_owner_accuracy'))}", "",
+              f"{_pct(m.get('suggested_owner_accuracy'))}",
+          f"Over-escalation: not-covered questions escalated instead of marked insufficient (informational; "
+          f"passes if routed to the right owner): {_pct(m.get('over_escalation'))}", "",
           "## By category", "", "| Category | n | Pass | Status distribution |", "|---|---|---|---|"]
     for c, v in m["by_category"].items():
         L.append(f"| {c} | {v['n']} | {_pct(v['pass'])} | {m['status_confusion'][c]} |")

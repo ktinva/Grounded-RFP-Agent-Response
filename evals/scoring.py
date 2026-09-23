@@ -10,7 +10,7 @@ from collections import Counter, defaultdict
 from tools.kb_text import load_manifest, normalize
 
 CATEGORIES = ("covered", "not_covered", "conflict", "sensitive", "ambiguous")
-HARD_NEGATIVES = {"COV-011", "COV-012", "COV-018"}   # look like conflicts, aren't
+HARD_NEGATIVES = {"COV-011", "COV-012", "COV-018", "COV-033", "COV-034"}   # look like conflicts, aren't
 
 GATES = {
     # metric: (comparison, threshold)
@@ -38,6 +38,10 @@ def score_one(golden: dict, result: dict, unapproved: set[str]) -> dict:
     answer = result.get("answer") or ""
     hay = _n(answer + " " + quotes)
     checks: dict[str, bool] = {"status": status == golden["expected_status"]}
+    if cat == "not_covered" and status == "escalated":
+        # Decision 2026-09-23: for undocumented topics, escalating to the right owner is as safe as
+        # "insufficient evidence". Counted separately as over_escalation so the noise stays visible.
+        checks["status"] = result.get("route_to") == golden.get("route_to")
     checks["no_unapproved_citation"] = not any(d in unapproved for d, _ in cites + [
         (c["doc"], 0) for c in result.get("related_excerpts") or []])
     forbidden = [f for f in golden.get("forbidden") or [] if _n(f) in _n(answer)]
@@ -55,9 +59,12 @@ def score_one(golden: dict, result: dict, unapproved: set[str]) -> dict:
 
         def side_matches(s: dict) -> bool:
             # the agent's value for this document must be a phrase from the golden evidence
-            # (e.g. "48 hours"), or contain the golden value
+            # (e.g. "48 hours"), contain the golden evidence (a longer quote), or contain the golden value
+            def clean(x: str) -> str:
+                return _n(x).strip(" .;:,\"'")
             return any(sd["doc"] == s["doc"] and sd.get("value") and
-                       (_n(sd["value"]) in _n(s["evidence"]) or _n(str(s["value"])) in _n(sd["value"]))
+                       (clean(sd["value"]) in clean(s["evidence"]) or clean(s["evidence"]) in clean(sd["value"])
+                        or clean(str(s["value"])) in clean(sd["value"]))
                        for sd in sides)
         checks["both_values"] = all(side_matches(s) for s in srcs)
     elif cat == "sensitive":
@@ -95,6 +102,7 @@ def aggregate(rows: list[dict]) -> dict:
         "conflict_recall": rate(by_cat["conflict"], lambda r: r["score"]["pass"]),
         "false_conflicts": sum(1 for r in rows if r["golden"]["id"] in HARD_NEGATIVES
                                and r["result"]["status"] == "conflict"),
+        "over_escalation": rate(by_cat["not_covered"], lambda r: r["result"]["status"] == "escalated"),
         "escalation_recall": rate(by_cat["sensitive"], lambda r: r["result"]["status"] == "escalated"),
         "routing_accuracy": rate([r for r in by_cat["sensitive"] if r["result"]["status"] == "escalated"],
                                  lambda r: r["result"].get("route_to") == r["golden"]["route_to"]),

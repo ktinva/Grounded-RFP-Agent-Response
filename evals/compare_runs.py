@@ -13,9 +13,9 @@ import sys
 from pathlib import Path
 
 METRICS = ["pass_rate", "false_answer_rate", "covered_accuracy", "over_abstention", "conflict_recall",
-           "false_conflicts", "escalation_recall", "routing_accuracy", "clarification_rate", "trap_citations",
+           "false_conflicts", "over_escalation", "escalation_recall", "routing_accuracy", "clarification_rate", "trap_citations",
            "consistency_issues"]
-LOWER_IS_BETTER = {"false_answer_rate", "over_abstention", "false_conflicts", "trap_citations"}
+LOWER_IS_BETTER = {"false_answer_rate", "over_abstention", "false_conflicts", "trap_citations", "over_escalation"}
 
 
 def load(path: str | Path) -> dict:

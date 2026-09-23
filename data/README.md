@@ -47,12 +47,12 @@ Each conflict involves two approved documents that disagree. The correct behavio
 | 3 | RPO | BCP-004 p.1: **4 hours** | SLA-005 p.3: **1 hour** |
 | 4 | Sev 1 initial response | SLA-005 p.3: **1 hour** | SUP-008 p.1: **30 minutes** |
 | 5 | Hosting regions | PROD-001 p.2: **US, EU, UK** | DPA-006 p.2: **US or EU** |
-| 6 | Audit log retention (subtle) | SEC-002 p.3: **1 year** | ARC-009 p.3: **180 days** via API |
 
 ## Hard negatives: look like conflicts but aren't
 
 - **Uptime:** 99.9% (Business/Enterprise) and 99.95% (Enterprise Premium) are tiered by edition. They are consistent across PROD-001 and SLA-005.
 - **"30 days":** used for prompt log retention (AI-007), post-termination deletion (DPA-006), subprocessor notice (DPA-006), and object versioning (BCP-004). The number is the same, but the subjects differ.
+- **Audit logs:** 1 year stored (SEC-002 p.3) and 180 days via the Audit Log API (ARC-009 p.3). This was planted as a conflict, but the product owner decided on 2026-09-23 that these are two different things; a correct answer states both (golden COV-033 and COV-034).
 - **RTO (12 hours):** stated once, in BCP-004. It sits right next to the conflicting RPO and must not inherit that conflict.
 
 ## Trap document

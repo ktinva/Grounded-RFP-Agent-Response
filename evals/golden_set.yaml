@@ -579,32 +579,32 @@ questions:
   route_to: legal
   notes: A retriever that only finds the product overview will answer "yes" with a valid-looking citation. The contract says otherwise.
 
-- id: CF-011
-  category: conflict
+- id: COV-033
+  category: covered
   section: Logging and Monitoring
   question: How long are customer audit logs retained?
-  expected_status: conflict
+  expected_status: answered
   difficulty: hard
-  conflict:
-    topic: audit log retention
-    sources:
-      - {doc: KR-SEC-002, page: 3, evidence: "Customer audit logs are retained for 1 year.", value: "1 year"}
-      - {doc: KR-ARC-009, page: 3, evidence: "Audit events are available through the Audit Log API for 180 days.", value: "180 days"}
-  route_to: security
-  notes: Could be reconciled (API window vs storage retention), but the documents don't say so. Flag it and let security confirm.
+  expected_citations:
+    - {doc: KR-SEC-002, page: 3, evidence: "Customer audit logs are retained for 1 year."}
+    - {doc: KR-ARC-009, page: 3, evidence: "Audit events are available through the Audit Log API for 180 days."}
+  required_facts: ["1 year", "180 days"]
+  notes: >-
+    Formerly CF-011. Reviewed 2026-09-23: stored retention (1 year) and the API access window
+    (180 days) are different things, so an answer must state BOTH figures with citations. Also a
+    hard negative for conflict detection. An answer giving only one figure is a silent pick and fails.
 
-- id: CF-012
-  category: conflict
+- id: COV-034
+  category: covered
   section: Logging and Monitoring
   question: For how long can we access our audit history?
-  expected_status: conflict
+  expected_status: answered
   difficulty: hard
-  conflict:
-    topic: audit log retention
-    sources:
-      - {doc: KR-SEC-002, page: 3, evidence: "Customer audit logs are retained for 1 year.", value: "1 year"}
-      - {doc: KR-ARC-009, page: 3, evidence: "Audit events are available through the Audit Log API for 180 days.", value: "180 days"}
-  route_to: security
+  expected_citations:
+    - {doc: KR-SEC-002, page: 3, evidence: "Customer audit logs are retained for 1 year."}
+    - {doc: KR-ARC-009, page: 3, evidence: "Audit events are available through the Audit Log API for 180 days."}
+  required_facts: ["1 year", "180 days"]
+  notes: Formerly CF-012. Same decision as COV-033.
 
 # ---------------------------------------------------------------------------
 # 4. SENSITIVE - escalate rather than invent (even when related text exists)

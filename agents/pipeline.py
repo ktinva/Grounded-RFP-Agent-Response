@@ -76,7 +76,26 @@ def _quote_in(quote: str, text: str) -> bool:
 
 
 def _num_norm(s: str) -> str:
-    return re.sub(r"(?<=\d),(?=\d{3})", "", normalize(s))
+    return re.sub(r"(?<=\d),(?=\d{3})", "", normalize(s)).strip(" .;:,\"'")
+
+
+def sanitize_draft(d: dict) -> dict:
+    """Coerce field types the model sometimes gets wrong (live run: "claims": "null")."""
+    d = dict(d or {})
+    claims = d.get("claims")
+    d["claims"] = [c for c in claims if isinstance(c, dict)] if isinstance(claims, list) else []
+    for c in d["claims"]:
+        ids = c.get("passage_ids")
+        c["passage_ids"] = [ids] if isinstance(ids, str) else [i for i in (ids or []) if isinstance(i, str)]
+    conf = d.get("conflict")
+    if not isinstance(conf, dict):
+        d["conflict"] = {}
+    else:
+        sides = conf.get("sides")
+        conf["sides"] = [x for x in sides if isinstance(x, dict)] if isinstance(sides, list) else []
+    opts = d.get("clarification_options")
+    d["clarification_options"] = [o for o in opts if isinstance(o, str)] if isinstance(opts, list) else []
+    return d
 
 
 def infer_status(d: dict) -> str:
@@ -132,8 +151,8 @@ class Drafter:
             lines = "\n".join(f"- \"{r['claim']}\": {r['reason'] or 'not supported by the cited passage'}"
                               for r in rejections)
             user += f"\n\nYour previous answer: {json.dumps(previous or {})}" + REDRAFT_NOTE.format(rejections=lines)
-        return self.llm.json(system=DRAFTER_SYSTEM, user=user, schema=DRAFTER_SCHEMA,
-                             purpose="redraft" if rejections else "draft", max_tokens=1500)
+        return sanitize_draft(self.llm.json(system=DRAFTER_SYSTEM, user=user, schema=DRAFTER_SCHEMA,
+                                            purpose="redraft" if rejections else "draft", max_tokens=1500))
 
 
 class Verifier:
@@ -300,6 +319,9 @@ class RFPAgent:
                                       owner, hits)
         # The answer is exactly the verified claims, in order: no unverified sentence can reach the customer.
         res.answer = " ".join(c["claim"].strip().rstrip(".") + "." for c in supported)
+        res.trace["answer_claims"] = [{"text": c["claim"], "chunk_id": c["chunk"].chunk_id, "doc": c["chunk"].doc_id,
+                                       "page": c["chunk"].page, "doc_title": c["chunk"].doc_title,
+                                       "quote": c["quote"]} for c in supported]
         seen = set()
         for c in supported:
             key = (c["chunk"].chunk_id, c["quote"])

@@ -183,3 +183,86 @@ def test_compare_runs_reports_flips():
     out = compare(old, new)
     assert "Now passing (1)" in out and "- A (G): insufficient_evidence -> answered" in out
     assert "Now failing (1)" in out and "| false answer rate | 2% | 0% | better |" in out
+
+
+def _load_fixture(name):
+    from pathlib import Path
+
+    from agents.pipeline import Citation, Result
+    rs = []
+    for line in (Path(__file__).parent / "fixtures" / name).read_text().splitlines():
+        d = json.loads(line)
+        d["citations"] = [Citation(**c) for c in d["citations"]]
+        d["related_excerpts"] = [Citation(**c) for c in d["related_excerpts"]]
+        rs.append(Result(**d))
+    return {r.ref: r for r in rs}
+
+
+def test_contested_statement_is_removed_but_the_rest_of_the_answer_stays():
+    """Run 1: 'Which cloud provider?' answered 'AWS' plus UK hosting. Keep AWS, drop the contested UK claim."""
+    from agents.consistency import check_consistency
+    rs = _load_fixture("live_run_2026-09-22_consistency.jsonl")
+    check_consistency(list(rs.values()))
+    hd05 = rs["HD-05"]
+    assert hd05.status == "answered" and "Amazon Web Services" in hd05.answer
+    assert "Kingdom" not in hd05.answer and hd05.route_to
+    assert rs["BC-07"].status == "answered"          # RTO answer untouched
+
+
+def test_answer_about_the_contested_value_becomes_a_conflict():
+    """Run 2: 'Can our data be stored exclusively in the United Kingdom?' was answered 'yes' from the
+    product overview while the DPA says US or EU only. That is a silent pick; it must become a conflict."""
+    from agents.consistency import check_consistency
+    rs = _load_fixture("live_run_2026-09-23_uk.jsonl")
+    check_consistency(list(rs.values()))
+    hd06 = rs["HD-06"]
+    assert hd06.status == "conflict"
+    assert {s["doc"] for s in hd06.conflict["sources"]} == {"KR-PROD-001", "KR-DPA-006"}
+
+
+def test_quoted_value_with_trailing_period_still_matches_source():
+    """Run 2 BC-06: a real 30-vs-90-day conflict was rejected because the quoted value ended in '.'
+    and the draft sent claims as the string "null"."""
+    q = "For production databases, what is the backup retention period?"
+
+    def draft(s, u):
+        return {"claims": "null", "status": "conflict", "conflict": {"topic": "backup retention", "sides": [
+            {"passage_id": _pid(u, "retained for 90 days"), "value": "Encrypted database backups are retained for 90 days."},
+            {"passage_id": _pid(u, "retained for 30 days"), "value": "Backups are retained for 30 days."}]}}
+    llm = ScriptedLLM({"classify": _cls(queries=["backup retention retained days"]), "draft": draft, "verify": None})
+    r = RFPAgent(llm).answer(q)
+    assert r.status == "conflict" and {s["doc"] for s in r.conflict["sources"]} == {"KR-BCP-004", "KR-SEC-002"}
+
+
+def test_scorer_accepts_a_longer_quote_that_contains_the_evidence():
+    """Run 2 HD-07: the agent quoted the whole DPA sentence; the scorer wrongly failed it."""
+    from evals.scoring import score_one
+    g = next(q for q in load_golden()["questions"] if q["id"] == "CF-009")
+    res = {"status": "conflict", "answer": "", "citations": [], "conflict": {"sources": [
+        {"doc": "KR-PROD-001", "page": 2,
+         "value": "Available hosting regions are the United States, the European Union, and the United Kingdom."},
+        {"doc": "KR-DPA-006", "page": 2, "value": "Customer Data is stored in the hosting region selected by the "
+                                                   "Customer, which is either the United States or the European Union."}]}}
+    assert score_one(g, res, set())["pass"]
+
+
+def test_escalating_an_undocumented_topic_to_the_right_owner_passes():
+    """Decision 2026-09-23: escalation to the correct owner is as safe as 'insufficient evidence'."""
+    from evals.scoring import aggregate, score_one
+    g = next(q for q in load_golden()["questions"] if q["id"] == "NC-002")        # HIPAA BAA -> legal
+    right = {"status": "escalated", "route_to": "legal", "answer": "", "citations": []}
+    wrong = {"status": "escalated", "route_to": "product", "answer": "", "citations": []}
+    assert score_one(g, right, set())["pass"] and not score_one(g, wrong, set())["pass"]
+    m = aggregate([{"golden": g, "result": right, "score": score_one(g, right, set())}])
+    assert m["over_escalation"] == 1.0 and m["false_answer_rate"] == 0.0
+
+
+def test_audit_log_answer_must_state_both_figures():
+    """Decision 2026-09-23: COV-033/034 are covered; one figure alone is a silent pick."""
+    from evals.scoring import score_one
+    g = next(q for q in load_golden()["questions"] if q["id"] == "COV-033")
+    cites = [{"doc": "KR-SEC-002", "page": 3, "quote": "Customer audit logs are retained for 1 year."},
+             {"doc": "KR-ARC-009", "page": 3, "quote": "Audit events are available through the Audit Log API for 180 days."}]
+    both = {"status": "answered", "answer": "Logs are retained for 1 year; the API serves 180 days.", "citations": cites}
+    one = {"status": "answered", "answer": "Logs are retained for 1 year.", "citations": cites[:1]}
+    assert score_one(g, both, set())["pass"] and not score_one(g, one, set())["pass"]

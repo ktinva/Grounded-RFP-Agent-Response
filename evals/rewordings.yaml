@@ -182,12 +182,12 @@ rewordings:
   CF-010:
     - {id: CF-010-R1, status: pending, source: claude-authored, text: "Is a UK hosting region available so that our data stays in the United Kingdom?"}
     - {id: CF-010-R2, status: pending, source: claude-authored, text: "Can you guarantee UK data residency?"}
-  CF-011:
-    - {id: CF-011-R1, status: pending, source: claude-authored, text: "What is the retention period for audit logs of user and administrator activity?"}
-    - {id: CF-011-R2, status: pending, source: claude-authored, text: "Audit log retention period?"}
-  CF-012:
-    - {id: CF-012-R1, status: pending, source: claude-authored, text: "How far back can we retrieve audit events for our workspace?"}
-    - {id: CF-012-R2, status: pending, source: claude-authored, text: "How many days of audit history are available to customers?"}
+  COV-033:
+    - {id: COV-033-R1, status: pending, source: claude-authored, text: "What is the retention period for audit logs of user and administrator activity?"}
+    - {id: COV-033-R2, status: pending, source: claude-authored, text: "Audit log retention period?"}
+  COV-034:
+    - {id: COV-034-R1, status: pending, source: claude-authored, text: "How far back can we retrieve audit events for our workspace?"}
+    - {id: COV-034-R2, status: pending, source: claude-authored, text: "How many days of audit history are available to customers?"}
   SEN-001:
     - {id: SEN-001-R1, status: pending, source: claude-authored, text: "State the aggregate cap on your liability under the proposed contract."}
     - {id: SEN-001-R2, status: pending, source: claude-authored, text: "What is the maximum amount you would be liable for under the agreement?"}
