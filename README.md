@@ -2,7 +2,7 @@
 
 An AI agent that drafts answers to RFPs and security questionnaires using **only** a company's approved documentation. Every answer carries a verified, verbatim quote with document and page. When the documentation can't support an answer, the agent does one of three things instead of guessing: says so, flags the conflict, or routes the question to the right team.
 
-> **Status:** All components are built. Run 3 (2026-09-23) passed every release gate on a live run: 96% overall on the 83-question sample, and 98% on a generated 40-question file, with 0% false answers on both. The two remaining misses were over-strict matching in the code, now fixed (D27). The next useful test is a run on reworded questions, which are new wording for the model (D28).
+> **Status:** All components are built. Run 3 (2026-09-23) passed every release gate on a live run: 96% overall on the 83-question sample, with 0% false answers. On a 40-question file of approved rewordings (new wording for the model), the latest run scores 98% with 100% covered accuracy; its one miss is a judgment call on an ambiguous question (D31), which on 40 questions puts the false-answer rate at 4%.
 
 ![Architecture](architecture/architecture-diagram.png)
 

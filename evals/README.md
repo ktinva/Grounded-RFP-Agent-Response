@@ -82,6 +82,7 @@ The scripted "perfect model" in `tests/oracle_llm.py` scores 100% with all gates
 | 2026-09-23 (re-scored) | same answers | 83-question sample | 98% | 0% | 97% | 90% | Run 2 answers under D24/D25 rules plus the D23 consistency resolution. All gates pass; the BC-06 code fix still needs a live run. |
 | 2026-09-23 run 3 | claude-sonnet-5 | 83-question sample | 96% | 0% | 94% | 90% | **All gates pass on a live run.** BC-06 fixed. Two losses traced to over-strict matching (D27). |
 | 2026-09-23 | claude-sonnet-5 | Borealis Bank, 40 questions, **all reworded** (approved), Word table layout | 95% | 4% | 94% | 100% | First run on new wording. One false answer was a verifier-approved overclaim ("available continuously"), now blocked in code (D29). |
+| 2026-09-23 | claude-sonnet-5 | Borealis Bank, same file, after D29–D32 | 98% | 4% | 100% | 100% | Audit-log question now answered with both figures, citing both pages (D32). The one miss: "round-the-clock availability" answered for uptime only (AMB-008 reworded, D31); on 40 questions one miss is 4%. The D29 check caught the "continuously" overclaim again. |
 | 2026-09-23 run 3 | claude-sonnet-5 | Acme Health, 40 questions, Yes/No layout | 98% | 0% | 94% | 100% | All gates pass. Not independent: 78 of 83 calls came from the cache, because the wording matches the golden set (D28). |
 
 When re-running after a change, keep the previous results so you can compare:
