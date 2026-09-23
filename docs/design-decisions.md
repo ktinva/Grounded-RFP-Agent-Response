@@ -180,3 +180,10 @@ A running log. Each entry states the decision, why, and what it costs.
 
 **Context:** The Acme Health run (40 questions, Yes/No layout, seed 42) reused 78 of its 83 model responses from the cache, because its questions are worded exactly like the golden set. It proves the Yes/No layout parses and scores correctly, but its answers are the sample run's answers.
 **Decision:** For a generalization check, generate with reworded questions (`--reworded 1.0`). Until rewordings are approved, that means `--include-pending`, and the run is labeled exploratory.
+
+## D29. A rule-based check on what the model verifier approves (reworded run)
+
+**Context:** In the first run on approved rewordings (Borealis Bank, 40 questions, 95% pass), the agent answered "Do you offer round-the-clock availability?" with "The service is **available continuously**, with an uptime commitment of at least 99.9%…". The model verifier approved it, quoting only the uptime sentence. The code check (D12) confirmed that the quote was verbatim, but not that it supported every part of the claim.
+**Decision:** After the model verifier approves a claim, code checks that every number, and every overclaiming word (continuously, always, never, only, guaranteed, fully, all, every, 24/7…), in the claim also appears in the cited passage. If one doesn't, the claim is rejected and goes through the redraft round.
+**Validation:** Replayed over all 211 claims the verifier approved in four live runs, the check rejects exactly one: the "continuously" overclaim. It wrongly rejects none.
+**Limit:** it catches invented numbers and absolute words, not every paraphrase that shifts meaning. The model verifier and human review remain the main defence for those.

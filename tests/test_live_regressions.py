@@ -307,3 +307,44 @@ def test_conflict_value_with_a_changed_number_is_still_rejected():
     llm = ScriptedLLM({"classify": _cls(queries=["breach notification timeline"]), "draft": draft, "verify": None})
     r = RFPAgent(llm).answer("If our data is compromised, how quickly will you tell us?")
     assert r.status != "conflict"
+
+
+# --- reworded run (Borealis Bank, 2026-09-23): a verifier-approved overclaim --------------------
+
+def test_overclaim_approved_by_the_model_verifier_is_rejected_in_code():
+    """Live: 'The service is available continuously, with an uptime commitment of at least 99.9%...'
+    The model verifier approved it with a quote that only supports the uptime figures."""
+    from tools.ingest import ingest
+    sla = next(c.text for c in ingest() if c.chunk_id == "KR-SLA-005:p1:c1")
+    claim = ("The service is available continuously, with an uptime commitment of at least 99.9% for the "
+             "Business and Enterprise editions and at least 99.95% for the Enterprise Premium edition.")
+    quote = ("Kestrel will make Kestrel Insight available with a Monthly Uptime Percentage of at least 99.9% for "
+             "the Business and Enterprise editions, and at least 99.95% for the Enterprise Premium edition.")
+    llm = ScriptedLLM({
+        "classify": _cls(queries=["uptime commitment monthly uptime percentage"]),
+        "draft": lambda s, u: {"status": "answered", "claims": [
+            {"text": claim, "passage_ids": [_pid(u, "Monthly Uptime Percentage of at least 99.9%")]}]},
+        "verify": lambda s, u: {"results": [{"claim_index": 0, "supported": True, "quote": quote}]},
+    })
+    r = RFPAgent(llm).answer("Do you offer round-the-clock availability?")
+    assert "continuously" not in r.answer
+    assert "adds details not in the cited source" in r.trace["verification"][0]["reason"]
+    assert _quote_in_check(quote, sla)
+
+
+def _quote_in_check(q, t):
+    from agents.pipeline import _quote_in
+    return _quote_in(q, t)
+
+
+@pytest.mark.parametrize("claim, expected", [
+    ("Kestrel commits to at least 99.9% monthly uptime for Business and Enterprise.", []),
+    ("Kestrel commits to 99.99% monthly uptime.", ["99.99%"]),
+    ("Kestrel always meets at least 99.9% uptime.", ["always"]),
+    ("Monthly uptime is guaranteed at 99.9%.", ["guaranteed"]),
+])
+def test_numbers_and_overclaim_words_must_come_from_the_source(claim, expected):
+    from agents.pipeline import unsupported_details
+    from tools.ingest import ingest
+    sla = next(c.text for c in ingest() if c.chunk_id == "KR-SLA-005:p1:c1")
+    assert unsupported_details(claim, sla) == expected

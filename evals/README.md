@@ -20,7 +20,7 @@
 |---|---|---|
 | `python -m evals.validate_golden_set` | no | Proves the golden set against the PDFs |
 | `python -m evals.retrieval_eval [--k 8] [--show-misses]` | no | Search recall for original and reworded questions |
-| `pytest -q` | no | 89 tests, including full scripted-model runs and live-run regressions |
+| `pytest -q` | no | 94 tests, including full scripted-model runs and live-run regressions |
 | `python -m evals.rescore <run> [--consistency]` | no | Re-score saved results under the current rules (D26) |
 | `python -m tools.generate_questionnaire ...` | no | New questionnaire plus hidden answer key |
 | `python -m tools.rewordings export / import` | no | Human review of rewordings |
@@ -80,6 +80,7 @@ The scripted "perfect model" in `tests/oracle_llm.py` scores 100% with all gates
 | 2026-09-23 | claude-sonnet-5 | 83-question sample | 90% | 6% | 97% | 58% | After D16–D22. Remaining failures traced in D23. |
 | 2026-09-23 (re-scored) | same answers | 83-question sample | 98% | 0% | 97% | 90% | Run 2 answers under D24/D25 rules plus the D23 consistency resolution. All gates pass; the BC-06 code fix still needs a live run. |
 | 2026-09-23 run 3 | claude-sonnet-5 | 83-question sample | 96% | 0% | 94% | 90% | **All gates pass on a live run.** BC-06 fixed. Two losses traced to over-strict matching (D27). |
+| 2026-09-23 | claude-sonnet-5 | Borealis Bank, 40 questions, **all reworded** (approved), Word table layout | 95% | 4% | 94% | 100% | First run on new wording. One false answer was a verifier-approved overclaim ("available continuously"), now blocked in code (D29). |
 | 2026-09-23 run 3 | claude-sonnet-5 | Acme Health, 40 questions, Yes/No layout | 98% | 0% | 94% | 100% | All gates pass. Not independent: 78 of 83 calls came from the cache, because the wording matches the golden set (D28). |
 
 When re-running after a change, keep the previous results so you can compare:

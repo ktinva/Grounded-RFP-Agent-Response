@@ -80,6 +80,27 @@ def _words(s: str) -> str:
 QUOTE_SPLIT = re.compile(r"\s*(?:\.\.\.|…|\[\.\.\.\])\s*|(?<=[.!?])\s+(?=[A-Z])")
 
 
+# Words that turn a factual statement into a stronger promise. If a claim uses one, the cited
+# passage must use it too (live example: "available continuously" for a 99.9% uptime commitment).
+OVERCLAIM_WORDS = {"continuously", "continuous", "always", "never", "only", "guarantee", "guaranteed",
+                   "guarantees", "fully", "completely", "entirely", "all", "every", "unlimited", "zero",
+                   "24/7", "24x7", "round-the-clock", "uninterrupted", "instantly", "immediately"}
+_NUM = re.compile(r"\d+(?:\.\d+)?%?")
+
+
+def unsupported_details(claim: str, source_text: str) -> list[str]:
+    """Numbers and overclaiming words in the claim that do not appear in the cited source.
+
+    A rule-based backstop for the model verifier: it cannot judge meaning, but it cannot be talked
+    into accepting an invented number or an added "always"/"continuously"/"only" either."""
+    c, src = _words(claim), _words(source_text)
+    src_nums = set(_NUM.findall(src))
+    src_tokens = set(src.split())
+    missing = [n for n in dict.fromkeys(_NUM.findall(c)) if n not in src_nums]
+    missing += [w for w in dict.fromkeys(c.split()) if w in OVERCLAIM_WORDS and w not in src_tokens]
+    return missing
+
+
 def _quote_in(quote: str, text: str) -> bool:
     """True if the quote is verbatim in the text. A quote stitched from several sentences of the same
     passage (joined by '...' or simply placed one after another) passes if every piece is verbatim."""
@@ -194,6 +215,11 @@ class Verifier:
             reason = r.get("reason", "")
             if r.get("supported") and src is None:
                 reason = "quote not found verbatim in the cited source"
+            if ok:
+                extra = unsupported_details(cl.get("text", ""), " ".join(c.text for c in chunks))
+                if extra:
+                    ok = False
+                    reason = "claim adds details not in the cited source: " + ", ".join(repr(x) for x in extra)
             results.append({"claim": cl.get("text", ""), "supported": ok, "reason": reason,
                             "quote": quote if ok else "", "raw_quote": quote, "chunk": src})
         return results
