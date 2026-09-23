@@ -120,3 +120,15 @@ def test_review_screen_approve_and_export(tmp_path, monkeypatch):
     export_btn = next(b for b in at.button if b.label == "Export approved answers")
     export_btn.click().run()
     assert not at.exception and any("Wrote 1 answers" in s.value for s in at.success)
+
+
+def test_moved_project_falls_back_to_finding_the_source_by_name(tmp_path):
+    import shutil
+    from pathlib import Path
+    folder = tmp_path / "northgate_rfp"
+    folder.mkdir()
+    (folder / "results.jsonl").write_text('{"ref": "4.1.1", "question": "q", "status": "answered"}\n')
+    (folder / "run.json").write_text(json.dumps({"source": "/Users/someone/elsewhere/northgate_rfp.docx"}))
+    run = Run.load(folder)
+    assert run.source is not None and run.source.exists() and run.source.name == "northgate_rfp.docx"
+    shutil.rmtree(folder)

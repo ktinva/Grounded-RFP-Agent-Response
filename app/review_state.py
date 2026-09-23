@@ -53,7 +53,9 @@ class Run:
             raise ReviewError(f"{folder} has no results.jsonl")
         results = [json.loads(l) for l in results_path.read_text(encoding="utf-8").splitlines() if l.strip()]
         meta = json.loads((folder / "run.json").read_text()) if (folder / "run.json").exists() else {}
-        source = Path(meta["source"]) if meta.get("source") else guess_source(folder)
+        source = Path(meta["source"]) if meta.get("source") else None
+        if source is None or not source.exists():      # folder moved, or run made elsewhere
+            source = guess_source(folder) or source
         state_path = folder / "review_state.json"
         decisions = {}
         if state_path.exists():
