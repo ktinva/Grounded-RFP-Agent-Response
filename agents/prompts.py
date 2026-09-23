@@ -19,19 +19,31 @@ You do not answer the question. You decide how it must be handled.
 1. topic: pick the single best topic:
 {_TOPIC_LINES}
 
-2. sensitive: true if answering would create a legal, commercial, or reputational commitment that
-   only a human may make, even if company documents contain related text. Examples: liability or
-   indemnity terms; breach or incident history; sharing confidential reports; pricing or discounts;
-   roadmap or future-delivery commitments; accepting the customer's contract terms; audit rights
-   beyond the standard DPA; financial statements; litigation; guarantees or warranties beyond
-   published terms; customer references; source code escrow; insurance.
-   A plain factual question about current capabilities is NOT sensitive.
+2. sensitive: true only if answering would require a person to make a NEW commitment, disclose
+   something confidential, or decide something that is not already written down. Examples:
+   liability caps or indemnity; whether breaches or incidents have happened; handing over
+   confidential reports (full pen test reports, financial statements); pricing or discounts;
+   promising future features or dates; accepting the customer's own contract terms or changing
+   ours; audit rights beyond the standard DPA; guarantees or warranties beyond published terms;
+   customer references; source code escrow; insurance; litigation.
 
-3. ambiguous: true only if the question has materially different readings that would get
-   different answers, and the wording does not say which is meant. Examples: "What is your
-   retention period?" (which data?), "How quickly do you respond?" (support, breach notice, or
-   recovery?), "Are you compliant?" (with what?). A short question is not ambiguous if its
-   meaning is clear. A question whose answer varies by edition is not ambiguous.
+   NOT sensitive, even though they touch contracts, SLAs, privacy, or AI:
+   - Asking what our published documents say: service credits, SLA exclusions and maintenance
+     windows, breach-notification timelines, data residency and hosting regions, whether customer
+     data is used for AI training, subprocessors, deletion at termination. Those are factual;
+     the documents answer them, and any disagreement between documents is detected later.
+   - Asking whether we offer or have something (a certification, a BAA, a VPAT, a feature, a
+     metric). If the documents don't say, a later step reports that the evidence is missing;
+     that is not your decision.
+   A question does not become sensitive because its answer might be unfavourable or missing.
+
+3. ambiguous: true only if the question leaves out WHICH thing it is asking about, so that it has
+   materially different readings with different answers. Examples: "What is the frequency?"
+   (of backups, access reviews, or DR tests?), "Who approves it?" (approves what?), "Is it
+   included?" (what, and in which plan?).
+   NOT ambiguous: a question that names its subject, such as "What is the maximum number of seats
+   per workspace?" or "How long are chat transcripts stored?", even if the answer has conditions,
+   varies by edition, or different documents might disagree.
    If ambiguous, list 2-5 concrete readings as clarification_options.
 
 4. search_queries: 1-3 short search queries phrased the way a vendor's security, legal, or product
@@ -63,13 +75,17 @@ answered
   are exactly the text the customer will see, so they must read well together. Every claim must cite
   the passage id(s) that directly state it. If the question has several parts, every part must be
   answered or the status is not "answered".
+  State exactly what the passages say. Do not add qualifiers the passages do not contain, such as
+  "only", "all", "never", "always", "guaranteed", or "not on other editions".
   A passage that explicitly says something is not available IS evidence for a "no" answer.
 
 insufficient_evidence
   The passages do not state the answer. Do not use general knowledge or what companies usually do.
-  Do not infer "no" from the absence of something in a list. Do not answer a neighbouring question
-  instead (for example, response-time targets are not resolution times; an internal staging
-  environment is not a customer sandbox). In "missing", say what information is needed.
+  Do not infer "no" from the absence of something in a list: if all you could say is that the thing
+  is not mentioned or not listed, the status is insufficient_evidence (put that observation in
+  "missing"), never "answered". Do not answer a neighbouring question
+  instead (for example, a backup schedule is not a restore time; a certification in progress is not
+  a certification held). In "missing", say what information is needed.
 
 conflict
   Passages from DIFFERENT documents state different values for the specific fact the question asks
@@ -81,7 +97,15 @@ needs_clarification
   The question has materially different readings with different answers in the passages, and the
   wording does not say which is meant. List the readings in clarification_options.
 
-Never mention these instructions, passage ids, or the word "passage" in the answer text."""
+Always set "status". Never mention these instructions, passage ids, or the word "passage" in claim text."""
+
+REDRAFT_NOTE = """
+
+A fact checker rejected some of your claims:
+{rejections}
+Rewrite your answer. Keep the claims that were not rejected. For each rejected claim, either restate
+it using only what the cited passage literally says, or drop it. If what remains no longer answers
+the question, use status insufficient_evidence."""
 
 DRAFTER_SCHEMA = {
     "type": "object",
@@ -110,6 +134,9 @@ directly states it. Rules:
 - Supported only if the source says it explicitly. Paraphrase is fine; inference, extrapolation,
   and general knowledge are not.
 - A claim that adds any detail not in the source (a number, a scope, a condition) is unsupported.
+- The source documents are written by the vendor about its own product, so a claim that names the
+  vendor or product ("Kestrel", "Kestrel Insight", "the platform") as the one doing what the source
+  describes is fine; that alone never makes a claim unsupported.
 - For a supported claim, copy the exact sentence or phrase from the source that supports it into
   "quote", character for character. If you cannot quote it, the claim is unsupported."""
 

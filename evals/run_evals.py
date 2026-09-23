@@ -25,7 +25,9 @@ from pathlib import Path
 
 import yaml
 
+from agents.consistency import check_consistency
 from agents.llm import MissingAPIKey, get_llm
+from app.review_state import write_run_meta
 from agents.pipeline import RFPAgent, results_to_jsonl
 from agents.run_questionnaire import review_markdown
 from evals.scoring import GATES, aggregate, score_one, unapproved_docs
@@ -39,10 +41,11 @@ def _pct(v) -> str:
     return "n/a" if v is None else (f"{v:.0%}" if isinstance(v, float) else str(v))
 
 
-def scorecard_md(name: str, key: dict, m: dict, rows: list[dict], usage: dict | None) -> str:
+def scorecard_md(name: str, key: dict, m: dict, rows: list[dict], usage: dict | None,
+                 issues: list | None = None) -> str:
     L = [f"# Scorecard: {name}", ""]
     L.append(f"Buyer: {key.get('buyer')} · layout: {key.get('layout')} · questions: {m['questions']} · "
-             f"overall pass: **{_pct(m['pass_rate'])}**")
+             f"model: {m.get('model', 'n/a')} · overall pass: **{_pct(m['pass_rate'])}**")
     if not key.get("scored", True):
         L += ["", "> **Exploratory run:** this file uses unapproved rewordings, so these numbers are not "
                   "trusted scores."]
@@ -59,6 +62,10 @@ def scorecard_md(name: str, key: dict, m: dict, rows: list[dict], usage: dict | 
           "## By category", "", "| Category | n | Pass | Status distribution |", "|---|---|---|---|"]
     for c, v in m["by_category"].items():
         L.append(f"| {c} | {v['n']} | {_pct(v['pass'])} | {m['status_confusion'][c]} |")
+    if issues is not None:
+        L += ["", f"Cross-answer consistency issues flagged (informational): {len(issues)}"]
+        for i in issues:
+            L.append(f"- {i.kind}: {' vs '.join(i.refs)}: {i.detail}")
     fails = [r for r in rows if not r["score"]["pass"]]
     L += ["", f"## Failures ({len(fails)})", ""]
     for r in fails:
@@ -75,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--key", type=Path)
     ap.add_argument("--out", type=Path)
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--no-consistency", action="store_true", help="skip the cross-answer consistency check")
     a = ap.parse_args(argv)
 
     key_path = a.key or a.file.with_suffix(".key.yaml")
@@ -95,6 +103,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 2
     results = RFPAgent(llm).answer_many([q.to_dict() for q in parsed], workers=a.workers)
+    for r, q in zip(results, parsed):
+        r.trace["location"] = q.location
+    issues = [] if a.no_consistency else check_consistency(results, llm)
 
     bad = unapproved_docs()
     rows = []
@@ -107,16 +118,20 @@ def main(argv: list[str] | None = None) -> int:
         rows.append({"ref": q.ref, "text": q.text, "golden": g, "variant": k["variant"],
                      "result": rd, "score": score_one(g, rd, bad)})
     m = aggregate(rows)
+    m["consistency_issues"] = len(issues)
+    m["model"] = getattr(llm, "model", None)
     usage = getattr(llm, "usage", None)
     usage = usage.to_dict() if usage else None
 
     out = a.out or ROOT / "evals" / "results" / a.file.stem
     out.mkdir(parents=True, exist_ok=True)
     (out / "results.jsonl").write_text(results_to_jsonl(results), encoding="utf-8")
-    (out / "review.md").write_text(review_markdown(a.file.name, results, usage), encoding="utf-8")
-    (out / "scorecard.md").write_text(scorecard_md(a.file.name, key, m, rows, usage), encoding="utf-8")
+    write_run_meta(out, a.file)
+    (out / "review.md").write_text(review_markdown(a.file.name, results, usage, issues), encoding="utf-8")
+    (out / "scorecard.md").write_text(scorecard_md(a.file.name, key, m, rows, usage, issues), encoding="utf-8")
     (out / "scorecard.json").write_text(json.dumps({"file": a.file.name, "scored": key.get("scored", True),
                                                     "metrics": m, "usage": usage,
+                                                    "consistency_issues": [i.to_dict() for i in issues],
                                                     "rows": [{k_: v for k_, v in r.items() if k_ != "golden"}
                                                              | {"golden_id": r["golden"]["id"]} for r in rows]},
                                                    indent=1, default=str), encoding="utf-8")

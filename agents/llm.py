@@ -26,6 +26,34 @@ class MissingAPIKey(RuntimeError):
     pass
 
 
+# Wrapper keys models sometimes nest a tool input under (seen in live runs: "params", "parameters").
+_WRAPPER_KEYS = {"params", "parameters", "input", "arguments", "args", "properties", "result", "response", "output"}
+
+
+def normalize_structured(out, schema: dict | None) -> dict:
+    """Undo common structured-output slips: a single wrapper object around the real fields."""
+    if not isinstance(out, dict):
+        return {}
+    props = set((schema or {}).get("properties", {}))
+    for _ in range(2):
+        if len(out) == 1:
+            (k, v), = out.items()
+            if isinstance(v, dict) and k in _WRAPPER_KEYS and k not in props:
+                out = v
+                continue
+        break
+    return out
+
+
+def missing_required(out: dict, schema: dict | None) -> list[str]:
+    return [k for k in (schema or {}).get("required", []) if k not in out]
+
+
+REPAIR_NOTE = ("\n\n[Your previous reply could not be used: it was missing the required field(s) {fields}. "
+               "Reply again with every required field at the top level of the tool input, not nested "
+               "inside another object.]")
+
+
 class LLM(Protocol):
     def json(self, *, system: str, user: str, schema: dict | None = None, purpose: str = "",
              max_tokens: int = 1500) -> dict: ...
@@ -39,6 +67,12 @@ class Usage:
     output_tokens: int = 0
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
+    repairs: int = 0
+
+    def add_repair(self) -> None:
+        with self._lock:
+            self.repairs += 1
+
     def add(self, cached: bool, inp: int = 0, out: int = 0) -> None:
         with self._lock:
             self.calls += 1
@@ -47,7 +81,7 @@ class Usage:
             self.output_tokens += out
 
     def to_dict(self) -> dict:
-        return {"calls": self.calls, "cached": self.cached,
+        return {"calls": self.calls, "cached": self.cached, "repairs": self.repairs,
                 "input_tokens": self.input_tokens, "output_tokens": self.output_tokens}
 
 
@@ -87,17 +121,28 @@ class AnthropicLLM:
             self.usage.add(cached=True)
             return json.loads(path.read_text())["output"]
 
-        resp = self.client.messages.create(
-            model=self.model, max_tokens=max_tokens, system=system,
-            messages=[{"role": "user", "content": user}],
-            tools=[{"name": "respond", "description": f"Return the {purpose or 'result'} as structured data.",
-                    "input_schema": schema}],
-            tool_choice={"type": "tool", "name": "respond"},
-        )
-        out = next((b.input for b in resp.content if getattr(b, "type", "") == "tool_use"), None)
-        if out is None:
-            raise RuntimeError(f"model returned no structured output for {purpose}")
-        self.usage.add(cached=False, inp=resp.usage.input_tokens, out=resp.usage.output_tokens)
+        out: dict = {}
+        prompt = user
+        for attempt in range(2):  # one repair attempt if a required field is missing
+            resp = self.client.messages.create(
+                model=self.model, max_tokens=max_tokens, system=system,
+                messages=[{"role": "user", "content": prompt}],
+                tools=[{"name": "respond",
+                        "description": (f"Submit the {purpose or 'result'}. Put every field directly at the top "
+                                        f"level of the input; do not wrap it in another object."),
+                        "input_schema": schema}],
+                tool_choice={"type": "tool", "name": "respond"},
+            )
+            raw = next((b.input for b in resp.content if getattr(b, "type", "") == "tool_use"), None)
+            self.usage.add(cached=False, inp=resp.usage.input_tokens, out=resp.usage.output_tokens)
+            out = normalize_structured(raw, schema)
+            missing = missing_required(out, schema)
+            if not missing:
+                break
+            self.usage.add_repair()
+            prompt = user + REPAIR_NOTE.format(fields=", ".join(missing))
+        else:
+            return out  # still incomplete: return as-is (callers infer or abstain) and do not cache it
         if self.cache:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps({"purpose": purpose, "model": self.model, "output": out}, indent=1))
@@ -116,7 +161,10 @@ class ScriptedLLM:
              max_tokens: int = 1500) -> dict:
         self.calls.append((purpose, user))
         self.usage.add(cached=False)
-        return self.handlers[purpose](system, user)
+        handler = self.handlers.get(purpose) or (self.handlers.get("draft") if purpose == "redraft" else None)
+        if handler is None:
+            raise KeyError(f"no scripted handler for {purpose!r}")
+        return normalize_structured(handler(system, user), schema)
 
 
 def get_llm() -> LLM:

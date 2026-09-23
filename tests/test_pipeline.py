@@ -196,3 +196,40 @@ def test_short_exact_quote_is_accepted():
     })
     r = RFPAgent(llm).answer("Is customer data encrypted at rest? If so, which algorithm is used?")
     assert r.status == "answered" and r.citations[0].quote == "AES-256"
+
+
+# --- cross-answer consistency ---------------------------------------------------
+
+def _answered(ref, text, doc, page, chunk_id, topic="resilience"):
+    from agents.pipeline import Citation, Result
+    r = Result(ref=ref, question=f"q {ref}", status="answered", answer=text,
+               citations=[Citation(doc, page, chunk_id, doc, text)])
+    r.trace["classifier"] = {"topic": topic}
+    return r
+
+
+def test_answer_citing_a_conflicted_passage_is_flagged_without_model():
+    from agents.consistency import check_consistency
+    from agents.pipeline import Result
+    conflict = Result(ref="BC-05", question="How long are backups retained?", status="conflict",
+                      conflict={"topic": "backup retention", "sources": [
+                          {"doc": "KR-SEC-002", "page": 4, "chunk_id": "KR-SEC-002:p4:c2", "value": "30 days"},
+                          {"doc": "KR-BCP-004", "page": 1, "chunk_id": "KR-BCP-004:p1:c3", "value": "90 days"}]})
+    answered = _answered("GN-02", "Backups are retained for 30 days.", "KR-SEC-002", 4, "KR-SEC-002:p4:c2")
+    unrelated = _answered("DP-01", "Data is encrypted with AES-256.", "KR-SEC-002", 2, "KR-SEC-002:p2:c1")
+    issues = check_consistency([conflict, answered, unrelated], llm=None)
+    assert [(i.kind, i.refs) for i in issues] == [("conflict_reliance", ["GN-02", "BC-05"])]
+    assert answered.trace["consistency"] and "consistency" not in unrelated.trace
+
+
+def test_model_contradictions_must_name_real_answered_questions():
+    from agents.consistency import check_consistency
+    a = _answered("A-1", "RPO is 4 hours.", "KR-BCP-004", 1, "c1")
+    b = _answered("A-2", "RPO is 1 hour.", "KR-SLA-005", 3, "c2")
+    llm = ScriptedLLM({"consistency": lambda s, u: {"issues": [
+        {"refs": ["A-1", "A-2"], "fact": "RPO", "explanation": "4 hours vs 1 hour"},
+        {"refs": ["A-1", "Z-9"], "fact": "invented", "explanation": "not a real ref"},
+        {"refs": ["A-1", "A-1"], "fact": "self", "explanation": "same ref"}]}})
+    issues = check_consistency([a, b], llm)
+    assert [(i.kind, i.refs) for i in issues] == [("contradiction", ["A-1", "A-2"])]
+    assert issues[0].sources == ["KR-BCP-004 p.1", "KR-SLA-005 p.3"]

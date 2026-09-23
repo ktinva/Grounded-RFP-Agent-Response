@@ -20,11 +20,12 @@
 |---|---|---|
 | `python -m evals.validate_golden_set` | no | Proves the golden set against the PDFs |
 | `python -m evals.retrieval_eval [--k 8] [--show-misses]` | no | Search recall for original and reworded questions |
-| `pytest -q` | no | 50 tests, including full scripted-model runs |
+| `pytest -q` | no | 76 tests, including full scripted-model runs and live-run regressions |
 | `python -m tools.generate_questionnaire ...` | no | New questionnaire plus hidden answer key |
 | `python -m tools.rewordings export / import` | no | Human review of rewordings |
 | `python -m tools.rewordings propose` | yes | Ask Claude for more rewordings (arrive as `pending`) |
-| `python -m evals.run_evals <file>` | yes | Run the agent and score it: `scorecard.md`, `scorecard.json`, `review.md`, `results.jsonl` |
+| `python -m evals.run_evals <file> [--out DIR]` | yes | Run the agent and score it: `scorecard.md`, `scorecard.json`, `review.md`, `results.jsonl` |
+| `python -m evals.compare_runs <before> <after>` | no | Metric changes and questions that flipped between two runs |
 
 `run_evals` exits with code 1 if any release gate fails, so it can gate CI.
 
@@ -68,3 +69,20 @@ In the full pipeline, the classifier adds up to three queries in the documents' 
 Similarity scores can't separate answerable from unanswerable questions: the top-hit similarity for covered questions ranges 0.12–0.59, and for not-covered questions 0.05–0.33. So abstention is decided by the drafter and verifier, not by a retrieval threshold.
 
 The scripted "perfect model" in `tests/oracle_llm.py` scores 100% with all gates passing, on both the full sample and a generated, reworded `.docx`. That proves the parsing, retrieval, id mapping, verification, routing and scoring chain. It says nothing about the real model's judgment; that is what `run_evals` with a key measures.
+
+## Live runs
+
+| Date | Model | File | Pass | False-answer | Covered | Conflict recall | Notes |
+|---|---|---|---|---|---|---|---|
+| 2026-09-22 | default (`RFP_AGENT_MODEL`) | 83-question sample | 73% | 2% | 75% | 25% | Safety gates held. Too cautious; see design decisions D16–D22. |
+| 2026-09-22 | default (`RFP_AGENT_MODEL`) | 20-question RFP | 65% | 8% | 62% | 33% | The one false answer: Salesforce "not listed" (fixed in the drafter prompt) |
+
+When re-running after a change, keep the previous results so you can compare:
+
+```bash
+mv evals/results/northgate_security_questionnaire evals/results/baseline_2026-09-22
+python -m evals.run_evals data/sample/questionnaires/northgate_security_questionnaire.xlsx
+python -m evals.compare_runs evals/results/baseline_2026-09-22 evals/results/northgate_security_questionnaire
+```
+
+**Tuning caveat:** the fixes after the first live run were motivated by golden-set failures. No eval question appears in any prompt (enforced by a test), but for a fair read on generalization, also score a freshly generated questionnaire with a new seed, and approved rewordings once they exist.

@@ -89,3 +89,51 @@ A running log. Each entry states the decision, why, and what it costs.
 **Decision:** Identical (model, prompt, schema) calls replay from `.cache/llm/`.
 **Why:** Eval runs become repeatable and re-runs are free. That matters because scoring changes and questionnaire regeneration happen far more often than prompt changes.
 **Cost:** After changing documents or prompts, stale entries are simply never hit again. Set `LLM_CACHE=0` to force fresh calls.
+
+## D16. Tolerate and repair malformed structured output
+
+**Context:** In the first live run, 18% of drafter replies were malformed: `status` was missing, or the fields were wrapped in `{"params": ...}`. The pipeline treated these as "insufficient evidence" and discarded correct answers and six correct conflict detections.
+**Decision:**
+1. Unwrap known wrapper keys.
+2. If a required field is still missing, retry once, telling the model which field is missing. Only valid replies are cached.
+3. As a last resort, the pipeline infers the status from what came back: conflict sides mean `conflict`, claims mean `answered`.
+**Why:** Inferring `answered` is safe because the claims still go through verification. A format slip should never cost a correct answer.
+
+## D17. "What do your published terms say?" is factual; "Will you agree to…?" is sensitive
+
+**Context:** The classifier escalated questions about service credits, maintenance windows, breach-notification timelines, and AI training on customer data, treating them as commitments.
+**Decision:** The classifier prompt now separates reporting what approved documents state (not sensitive) from making a new commitment, disclosing something confidential, or deciding something unwritten (sensitive). Asking whether something is offered is not sensitive; missing evidence is the drafter's call.
+**Guardrail:** The hard escalation rules are unchanged and still run first, so this relaxation cannot un-escalate a rule hit.
+
+## D18. Ambiguity is checked before sensitivity, and needs a missing subject
+
+**Decision:**
+- A question is ambiguous only when it leaves out *which thing* it asks about. Conditions, edition differences, and possible document conflicts do not make it ambiguous.
+- When the classifier flags a question as both ambiguous and sensitive, the agent asks for clarification first.
+**Why:** Clarification is cheap. The right owner for an ambiguous question isn't known until the buyer says what they mean.
+
+## D19. One redraft round after verification
+
+**Decision:** When the verifier rejects claims, the drafter sees the rejected claims and the reasons, and gets one chance to restate them faithfully or drop them. The redraft replaces the original only if at least as many claims verify.
+**Why:** In the live run, the verifier correctly rejected an added "only". Without a repair path, a correct answer became an abstention.
+**Cost:** Up to two extra model calls, only for questions with rejected claims.
+
+## D20. Eval questions must never appear in prompts
+
+**Context:** While fixing the live failures, it turned out that several prompt examples were golden-set questions quoted verbatim ("What is your retention period?", "Are you compliant?"). The drafter's examples came from the golden set's notes. That lets the eval partly measure recall of its own examples.
+**Decision:** All prompt examples were replaced with ones from outside the eval set. `test_prompts_contain_no_eval_questions` fails if any golden question or rewording appears in a prompt.
+**Remaining risk:** The prompt fixes were still motivated by golden-set failures. Scores on freshly generated questionnaires and approved rewordings are the fairer check.
+
+## D21. Consistency: rule first, then model, and flags must be concrete
+
+**Decision:**
+- **Rule:** an answer is flagged when it cites a passage that another question found to be in conflict *and* its text contains a value unique to one side ("United Kingdom", "4"). Sharing a passage alone is not enough; the live RTO answer shares a sentence with the RPO conflict and is correctly not flagged.
+- **Model:** a per-topic check looks for contradictions. Its flags are discarded unless they name two real, answered questions.
+**Why:** In the live run, the rule caught "Which cloud provider hosts the service?" volunteering UK hosting that the DPA contradicts. No per-question check could have seen that.
+
+## D22. Review before export, and export into a copy of the customer's file
+
+**Decision:**
+- Reviewer decisions live in `review_state.json` beside the run. Only answered questions can be approved unchanged; anything else must be written by the reviewer and is marked human-written.
+- Export writes approved and edited answers into a copy of the original file, at the cell or paragraph the parser recorded. It refuses to overwrite the original.
+**Why:** Buyers want their own file back. "The agent drafted it, a named person approved it" must hold for every sentence that leaves the company.

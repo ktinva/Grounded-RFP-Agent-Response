@@ -18,6 +18,8 @@ from collections import Counter
 from pathlib import Path
 
 from agents.llm import MissingAPIKey, get_llm
+from agents.consistency import Issue, check_consistency
+from app.review_state import write_run_meta
 from agents.pipeline import STATUSES, RFPAgent, Result, results_to_jsonl
 from tools.parse_questionnaire import parse_questionnaire
 
@@ -27,10 +29,18 @@ LABEL = {"answered": "Answered (cited)", "insufficient_evidence": "Insufficient 
          "needs_clarification": "Needs clarification"}
 
 
-def review_markdown(source: str, results: list[Result], usage: dict | None = None) -> str:
+def review_markdown(source: str, results: list[Result], usage: dict | None = None,
+                    issues: list[Issue] | None = None) -> str:
     counts = Counter(r.status for r in results)
     lines = [f"# Review: {source}", "",
              " | ".join(f"**{LABEL[s]}**: {counts.get(s, 0)}" for s in STATUSES), ""]
+    if issues:
+        lines += [f"## Consistency issues across answers ({len(issues)})", ""]
+        for i in issues:
+            kind = "Relies on a conflicting source" if i.kind == "conflict_reliance" else "Answers contradict"
+            lines.append(f"- **{kind}** ({' vs '.join(i.refs)}): {i.detail}"
+                         + (f" Sources: {', '.join(i.sources)}." if i.sources else ""))
+        lines.append("")
     if usage:
         lines += [f"_Model calls: {usage['calls']} ({usage['cached']} from cache), "
                   f"tokens in/out: {usage['input_tokens']:,}/{usage['output_tokens']:,}_", ""]
@@ -60,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("file", type=Path)
     ap.add_argument("--out", type=Path)
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--no-consistency", action="store_true", help="skip the cross-answer consistency check")
     a = ap.parse_args(argv)
 
     qs = parse_questionnaire(a.file)
@@ -73,13 +84,17 @@ def main(argv: list[str] | None = None) -> int:
     results = agent.answer_many([q.to_dict() for q in qs], workers=a.workers)
     for r, q in zip(results, qs):
         r.trace["location"] = q.location
+    issues = [] if a.no_consistency else check_consistency(results, llm)
 
     out = a.out or ROOT / "evals" / "results" / a.file.stem
     out.mkdir(parents=True, exist_ok=True)
     (out / "results.jsonl").write_text(results_to_jsonl(results), encoding="utf-8")
+    write_run_meta(out, a.file)
     usage = getattr(llm, "usage", None)
-    (out / "review.md").write_text(review_markdown(a.file.name, results, usage.to_dict() if usage else None),
-                                   encoding="utf-8")
+    (out / "review.md").write_text(review_markdown(a.file.name, results, usage.to_dict() if usage else None,
+                                                   issues), encoding="utf-8")
+    if issues:
+        print(f"{len(issues)} consistency issue(s) across answers; see review.md")
     print(json.dumps(dict(Counter(r.status for r in results))))
     print(f"Wrote {out / 'review.md'}")
     return 0

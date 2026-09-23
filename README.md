@@ -2,7 +2,7 @@
 
 An AI agent that drafts answers to RFPs and security questionnaires using **only** a company's approved documentation. Every answer carries a verified, verbatim quote with document and page. When the documentation can't support an answer, the agent does one of three things instead of guessing: says so, flags the conflict, or routes the question to the right team.
 
-> **Status:** Phase 0 (sample data + golden eval set) and Phase 1 (agents + eval runner) are built and tested offline. The first scorecard against a live model needs an Anthropic API key; see [Run it with your API key](#10-how-can-someone-run-it-locally). Phase 3 (review UI + write-back into the customer's file) is next.
+> **Status:** The pipeline, eval suite, cross-answer consistency checker, review screen, and write-back export are built. The first live run (2026-09-22) passed the safety gates but abstained too often. Fixes for every failure it found are in, pending a confirming re-run; see [Live results](#live-results).
 
 ![Architecture](architecture/architecture-diagram.png)
 
@@ -28,7 +28,11 @@ Give it a customer questionnaire (`.xlsx`) or RFP (`.docx`) in any of several co
 | **Escalated** | The team (legal / security / product / SE), the reason, and related excerpts |
 | **Needs clarification** | The possible readings to send back to the buyer |
 
-The output is `review.md` (grouped by status) plus `results.jsonl` (full trace per question). With an answer key, you also get a scored `scorecard.md`.
+After every question is answered, a **consistency check** flags answers in the same file that contradict each other, or that repeat one side of a conflict another question surfaced. For example, a "which cloud provider?" answer might volunteer UK hosting that the DPA contradicts.
+
+Reviewers then work in the **review screen**: they filter by status, see sources and consistency flags, and approve, edit, or reject each answer. **Export** writes only approved or edited answers into a copy of the customer's own file (the right Excel cells or Word paragraphs). The original is never modified.
+
+Each run writes `review.md` (grouped by status) and `results.jsonl` (full trace per question). With an answer key, it also writes a scored `scorecard.md`.
 
 ## 4. What is the architecture?
 
@@ -50,7 +54,8 @@ Per question (`agents/pipeline.py`):
 | `get_page(doc, page)` | `tools/kb_text.py` |
 | `ingest()` | `tools/ingest.py`: approval gate plus page-exact chunks |
 | `route` | `agents/policy.py` |
-| `export_response` | *Phase 3* |
+| `check_consistency(results)` | `agents/consistency.py`: rule-based conflict reliance plus model-checked contradictions |
+| `export_response(run)` | `tools/export_response.py`: approved answers only, into a copy of the customer file |
 
 ## 6. How do you prevent hallucinations?
 
@@ -78,6 +83,28 @@ Per question (`agents/pipeline.py`):
 
 See [`evals/README.md`](evals/README.md).
 
+### Live results
+
+First live run, 2026-09-22 (83-question sample):
+
+| Gate | Result |
+|---|---|
+| Trap citations | 0 (pass) |
+| False-answer rate | 2% (pass) |
+| Escalation recall / routing | 100% / 100% (pass) |
+| Clarification rate | 90% (pass) |
+| Covered accuracy | 75% (fail) |
+| Conflict recall | 25% (fail) |
+
+The agent was safe but too cautious. The causes, all now fixed and covered by regression tests:
+
+1. 18% of drafter replies came back malformed (a missing `status` field, or wrapped in `{"params": ...}`), and the code threw correct answers and conflicts away.
+2. The classifier escalated factual questions about published terms.
+3. The classifier over-flagged ambiguity.
+4. An overstated claim had no repair path.
+
+Details are in `docs/design-decisions.md` (D16–D22).
+
 ## 8. How could it be deployed in an enterprise?
 
 - SSO and RBAC per document collection.
@@ -94,14 +121,15 @@ See [`evals/README.md`](evals/README.md).
 - **The escalation rules were tuned on this question set.** The model classifier backs them up, but novel phrasings need monitoring.
 - **Retrieval is lexical.** It's fine at this corpus size; a large corpus would add embeddings to the fusion.
 - **The sample corpus is synthetic and clean.** Scanned PDFs and complex tables will parse worse.
-- **Cross-answer consistency checking is not built yet.** Conflicts are detected between documents, not yet between two answers in the same questionnaire.
+- **The prompts were revised after seeing golden-set failures.** No eval question appears in any prompt (a test enforces this), but fresh generated questionnaires and approved rewordings are the fairer measure of generalization.
+- **The review screen is a local, single-user tool.** Multi-user review needs authentication and a shared store.
 - **Legal wording still needs a lawyer.**
 
 ## 10. How can someone run it locally?
 
 ```bash
 pip install -r requirements.txt
-pytest -q                                   # 50 offline tests, no API key needed
+pytest -q                                   # 76 offline tests, no API key needed
 python -m evals.retrieval_eval              # search quality, no API key needed
 ```
 
@@ -140,19 +168,32 @@ python -m tools.rewordings import
 
 **Answer a real questionnaire** (no answer key needed): `python -m agents.run_questionnaire path/to/file.xlsx`
 
+**Review and export**
+
+```bash
+streamlit run app/review_app.py                       # pick a run, approve / edit / reject, export
+python -m tools.export_response evals/results/northgate_rfp   # or export from the command line
+```
+
+**Compare two runs** (for example, before and after a prompt change)
+
+```bash
+python -m evals.compare_runs evals/results/<before> evals/results/<after>
+```
+
 **Docker:** `docker compose run agent pytest -q`, or `docker compose run agent python -m evals.run_evals data/sample/questionnaires/northgate_rfp.docx`
 
 ## Repository layout
 
 ```
-├── agents/         pipeline (classifier, drafter, verifier, router), policy rules, prompts, LLM client
+├── agents/         pipeline (classifier, drafter, verifier, router), consistency checker, policy rules, prompts, LLM client
 ├── tools/          ingest, search, questionnaire parser, generator + layouts, rewordings, corpus builder
 ├── data/sample/    fictional knowledge base (PDF) + sample questionnaires with answer keys
 ├── evals/          golden set, rewordings, validator, scoring, eval runner, retrieval eval
-├── tests/          50 offline tests incl. scripted-model end-to-end runs
+├── tests/          76 offline tests incl. scripted-model end-to-end runs and live-run regressions
 ├── docs/           design decisions
 ├── architecture/   architecture diagram (generated by tools/draw_architecture.py)
-└── app/            review UI + export (Phase 3)
+└── app/            review screen (Streamlit) and reviewer decision store
 ```
 
 *All companies and documents in this repository are fictional.*

@@ -21,7 +21,7 @@ from typing import Iterable
 from agents import policy
 from agents.llm import LLM
 from agents.prompts import (CLASSIFIER_SCHEMA, CLASSIFIER_SYSTEM, DRAFTER_SCHEMA, DRAFTER_SYSTEM,
-                            VERIFIER_SCHEMA, VERIFIER_SYSTEM)
+                            REDRAFT_NOTE, VERIFIER_SCHEMA, VERIFIER_SYSTEM)
 from tools.ingest import Chunk
 from tools.kb_text import normalize
 from tools.search_kb import Hit, KBIndex, default_index
@@ -79,6 +79,20 @@ def _num_norm(s: str) -> str:
     return re.sub(r"(?<=\d),(?=\d{3})", "", normalize(s))
 
 
+def infer_status(d: dict) -> str:
+    """Use the stated status; if the model omitted it, infer it from what it did return."""
+    status = d.get("status")
+    if status in ("answered", "insufficient_evidence", "conflict", "needs_clarification"):
+        return status
+    if len((d.get("conflict") or {}).get("sides") or []) >= 2:
+        return "conflict"
+    if any(c.get("text") for c in d.get("claims") or []):
+        return "answered"
+    if len(d.get("clarification_options") or []) >= 2:
+        return "needs_clarification"
+    return "insufficient_evidence"
+
+
 def _cite(c: Chunk, quote: str) -> Citation:
     return Citation(doc=c.doc_id, page=c.page, chunk_id=c.chunk_id, doc_title=c.doc_title, quote=quote)
 
@@ -111,10 +125,15 @@ class Drafter:
     def __init__(self, llm: LLM):
         self.llm = llm
 
-    def __call__(self, question: str, passages_text: str) -> dict:
+    def __call__(self, question: str, passages_text: str, rejections: list[dict] | None = None,
+                 previous: dict | None = None) -> dict:
         user = f"Question: {question}\n\nPassages:\n{passages_text}"
+        if rejections:
+            lines = "\n".join(f"- \"{r['claim']}\": {r['reason'] or 'not supported by the cited passage'}"
+                              for r in rejections)
+            user += f"\n\nYour previous answer: {json.dumps(previous or {})}" + REDRAFT_NOTE.format(rejections=lines)
         return self.llm.json(system=DRAFTER_SYSTEM, user=user, schema=DRAFTER_SCHEMA,
-                             purpose="draft", max_tokens=1500)
+                             purpose="redraft" if rejections else "draft", max_tokens=1500)
 
 
 class Verifier:
@@ -186,21 +205,25 @@ class RFPAgent:
         hits = self.index.search(queries, k=self.top_k)
         t["retrieved"] = [h.chunk.chunk_id for h in hits]
 
+        # Ambiguity first: asking the buyer what they mean is cheap, and an ambiguous question
+        # cannot be judged sensitive or answerable until its subject is known.
+        if cls.get("ambiguous") and len(cls.get("clarification_options") or []) >= 2:
+            res.status = "needs_clarification"
+            res.clarification_options = cls["clarification_options"]
+            return res
         if cls.get("sensitive"):
             res.status, res.route_to = "escalated", owner
             res.route_reason = cls.get("sensitive_reason") or "Flagged as sensitive by the classifier."
             res.related_excerpts = _excerpts(hits)
-            return res
-        if cls.get("ambiguous") and len(cls.get("clarification_options") or []) >= 2:
-            res.status = "needs_clarification"
-            res.clarification_options = cls["clarification_options"]
             return res
 
         # 3-4. retrieve + draft
         passages_text, pid_map = _passages(hits)
         d = self.draft(question, passages_text)
         t["draft"] = d
-        status = d.get("status")
+        status = infer_status(d)
+        if status != d.get("status"):
+            t["status_inferred"] = status
 
         if status == "needs_clarification":
             res.status = "needs_clarification"
@@ -211,7 +234,7 @@ class RFPAgent:
             return self._finish_conflict(res, d, pid_map, owner)
 
         if status == "answered":
-            return self._finish_answer(res, d, pid_map, owner, hits)
+            return self._finish_answer(res, d, pid_map, owner, hits, question, passages_text)
 
         return self._insufficient(res, d.get("missing") or "The approved documents do not address this question.",
                                   owner, hits)
@@ -239,14 +262,36 @@ class RFPAgent:
         res.related_excerpts = _excerpts(hits)
         return res
 
-    def _finish_answer(self, res: Result, d: dict, pid_map: dict[str, Chunk], owner: str,
-                       hits: list[Hit]) -> Result:
+    def _verify_draft(self, d: dict, pid_map: dict[str, Chunk]) -> tuple[list[dict], list[dict]]:
         claims = [c for c in d.get("claims") or [] if c.get("text")]
+        return claims, (self.verify(claims, pid_map) if claims else [])
+
+    @staticmethod
+    def _trace_checks(checks: list[dict]) -> list[dict]:
+        return [{k: v for k, v in c.items() if k != "chunk"} |
+                {"chunk_id": c["chunk"].chunk_id if c["chunk"] else None} for c in checks]
+
+    def _finish_answer(self, res: Result, d: dict, pid_map: dict[str, Chunk], owner: str,
+                       hits: list[Hit], question: str = "", passages_text: str = "") -> Result:
+        claims, checks = self._verify_draft(d, pid_map)
         if not claims:
             return self._insufficient(res, "Draft had no cited claims.", owner, hits)
-        checks = self.verify(claims, pid_map)
-        res.trace["verification"] = [{k: v for k, v in c.items() if k != "chunk"} |
-                                     {"chunk_id": c["chunk"].chunk_id if c["chunk"] else None} for c in checks]
+        res.trace["verification"] = self._trace_checks(checks)
+
+        # One repair round: the drafter sees why claims were rejected and may restate them faithfully.
+        rejected = [c for c in checks if not c["supported"]]
+        if rejected and question:
+            d2 = self.draft(question, passages_text, rejections=rejected, previous=d)
+            res.trace["redraft"] = d2
+            if infer_status(d2) == "answered":
+                claims2, checks2 = self._verify_draft(d2, pid_map)
+                if sum(c["supported"] for c in checks2) >= sum(c["supported"] for c in checks):
+                    checks = checks2
+                    res.trace["verification_after_redraft"] = self._trace_checks(checks2)
+            elif infer_status(d2) == "insufficient_evidence" and not any(c["supported"] for c in checks):
+                return self._insufficient(res, d2.get("missing") or "No drafted claim could be verified.",
+                                          owner, hits)
+
         supported = [c for c in checks if c["supported"]]
         if len(supported) < len(checks):
             res.trace["dropped_claims"] = [c["claim"] for c in checks if not c["supported"]]
