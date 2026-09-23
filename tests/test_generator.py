@@ -1,8 +1,6 @@
 """Tests for the questionnaire generator, the rewording review workflow, and the parser."""
 from __future__ import annotations
 
-import shutil
-
 import pytest
 from openpyxl import load_workbook
 
@@ -54,14 +52,30 @@ def test_asking_for_too_many_is_a_clear_error(tmp_path):
         generate(Spec(buyer="C", mix={"sensitive": 16}, out_dir=tmp_path))
 
 
+def _bank_copy(tmp_path, status_for):
+    """Copy of the real rewordings with statuses set by the test, so results don't depend on
+    what has been approved in evals/rewordings.yaml."""
+    bank = rw.load()
+    for items in bank.values():
+        for i, r in enumerate(items):
+            r["status"] = status_for(i)
+    store = tmp_path / "rewordings.yaml"
+    rw.save(bank, store)
+    return store
+
+
 def test_unapproved_rewordings_are_excluded_unless_asked(tmp_path):
-    trusted = generate(Spec(buyer="D", count=30, reworded=1.0, seed=3, out_dir=tmp_path / "t"))[2]
-    approved = {r["id"] for items in rw.load().values() for r in items if r["status"] == "approved"}
+    store = _bank_copy(tmp_path, lambda i: "approved" if i == 0 else "pending")   # R1 approved, R2 pending
+    approved = {r["id"] for items in rw.load(store).values() for r in items if r["status"] == "approved"}
+
+    trusted = generate(Spec(buyer="D", count=30, reworded=1.0, seed=3, out_dir=tmp_path / "t",
+                            rewordings_store=store))[2]
     assert trusted["scored"] is True
     assert all(q["variant"] == "original" or q["variant"] in approved for q in trusted["questions"])
+    assert any(q["variant"] in approved for q in trusted["questions"])
 
     explore = generate(Spec(buyer="D", count=30, reworded=1.0, include_pending=True, seed=3,
-                            out_dir=tmp_path / "e"))[2]
+                            out_dir=tmp_path / "e", rewordings_store=store))[2]
     assert explore["scored"] is False and "warning" in explore
     assert any(q["variant_status"] == "pending" for q in explore["questions"])
 
@@ -75,8 +89,7 @@ def test_customer_file_never_contains_labels(tmp_path):
 
 def test_rewording_review_round_trip(tmp_path):
     real_before = rw.REWORDINGS.read_bytes()
-    store = tmp_path / "rewordings.yaml"
-    shutil.copy(rw.REWORDINGS, store)
+    store = _bank_copy(tmp_path, lambda i: "pending")          # start from an all-pending copy
     sheet = tmp_path / "review.xlsx"
     assert rw.export_review(sheet, store=store) == sum(len(v) for v in rw.load(store).values())
 

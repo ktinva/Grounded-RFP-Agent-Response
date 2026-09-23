@@ -68,6 +68,7 @@ class Spec:
     out_dir: Path = DEFAULT_OUT
     filename: str | None = None
     fictional_note: bool = True
+    rewordings_store: Path | None = None  # default: evals/rewordings.yaml (tests pass their own copy)
     notes: list[str] = field(default_factory=list)
 
 
@@ -178,7 +179,7 @@ def generate(spec: Spec) -> tuple[Path, Path, dict]:
 
     rng = random.Random(spec.seed)
     golden = load_golden()["questions"]
-    bank = rw.load()
+    bank = rw.load(spec.rewordings_store) if spec.rewordings_store else rw.load()
 
     chosen = order_items(select(spec, golden, rng), spec, rng)
     wordings = [choose_wording(q, spec, rng, bank) for q in chosen]
